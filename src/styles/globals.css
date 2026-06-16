@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================
+   GARDA DESIGN SYSTEM — CSS Variables
+   ============================ */
+
+:root {
+  --color-bg: #FFFFFF;
+  --color-surface: #F5F5F8;
+  --color-card: #FFFFFF;
+  --color-input: #F0F0F5;
+  --color-border: #E2E2EA;
+  --color-border-hover: #D0D0DA;
+  --color-cyan: #00B894;
+  --color-pink: #FF0080;
+  --color-amber: #E67E22;
+  --color-text: #1A1A2E;
+  --color-text-secondary: #6B7280;
+  --color-text-muted: #9CA3AF;
+}
+
+.dark {
+  --color-bg: #0A0A14;
+  --color-surface: #12122A;
+  --color-card: #1A1A2E;
+  --color-input: #1A1A2E;
+  --color-border: #2A2A3E;
+  --color-border-hover: #3A3A4E;
+  --color-cyan: #00E5C3;
+  --color-pink: #FF0080;
+  --color-amber: #EF9F27;
+  --color-text: #FFFFFF;
+  --color-text-secondary: #8A8AA0;
+  --color-text-muted: #4A4A6A;
+}
+
+/* ============================
+   BASE LAYER
+   ============================ */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-garda-bg text-garda-text font-sans antialiased;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overscroll-behavior: none;
+  }
+
+  /* All numeric displays use mono font */
+  .font-mono-num {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Scrollbar styling for dark mode */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-garda-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-garda-border-hover;
+  }
+
+  /* Remove number input spinners */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+/* ============================
+   COMPONENT LAYER
+   ============================ */
+
+@layer components {
+  .garda-card {
+    @apply bg-garda-card border border-garda-border rounded-xl p-4;
+  }
+
+  .garda-input {
+    @apply bg-garda-input border border-garda-border rounded-lg px-3 py-2.5
+           text-garda-text placeholder:text-garda-text-muted
+           focus:border-garda-cyan focus:ring-1 focus:ring-garda-cyan
+           transition-colors duration-200;
+  }
+
+  .garda-btn-long {
+    @apply bg-garda-cyan text-[#0A0A14] font-semibold rounded-lg px-4 py-3
+           hover:opacity-90 active:scale-[0.98] transition-all duration-150
+           disabled:bg-garda-input disabled:text-garda-text-muted disabled:cursor-not-allowed;
+  }
+
+  .garda-btn-short {
+    @apply bg-garda-pink text-white font-semibold rounded-lg px-4 py-3
+           hover:opacity-90 active:scale-[0.98] transition-all duration-150
+           disabled:bg-garda-input disabled:text-garda-text-muted disabled:cursor-not-allowed;
+  }
+
+  .garda-btn-primary {
+    @apply bg-garda-cyan text-[#0A0A14] font-semibold rounded-lg px-4 py-3
+           hover:opacity-90 active:scale-[0.98] transition-all duration-150
+           disabled:bg-garda-input disabled:text-garda-text-muted disabled:cursor-not-allowed;
+  }
+
+  .garda-btn-secondary {
+    @apply bg-garda-surface border border-garda-border text-garda-text font-medium rounded-lg px-4 py-3
+           hover:border-garda-border-hover active:scale-[0.98] transition-all duration-150;
+  }
+
+  .garda-btn-ghost {
+    @apply text-garda-text-secondary font-medium rounded-lg px-4 py-3
+           hover:bg-garda-surface active:scale-[0.98] transition-all duration-150;
+  }
+
+  /* Safe area padding for PWA */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* ============================
+   ANIMATION UTILITIES
+   ============================ */
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-pulse-glow {
+    animation: pulseGlow 2s infinite;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

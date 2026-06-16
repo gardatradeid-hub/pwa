@@ -1,0 +1,24 @@
+{
+  "name": "Garda — Trading Tanpa Emosi",
+  "short_name": "Garda",
+  "description": "Trading psychology guardrails untuk crypto futures",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0A0A14",
+  "background_color": "#0A0A14",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

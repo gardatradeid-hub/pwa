@@ -1,0 +1,115 @@
+{
+  "app": { "name": "Garda", "tagline": "Trade Without Emotions" },
+  "nav": { "home": "Home", "trade": "Trade", "stats": "Stats", "journal": "Journal", "profile": "Profile" },
+  "dashboard": {
+    "balance": "Total Balance", "pnl_today": "Today's P&L", "phase": "Phase",
+    "win_rate": "Win Rate", "daily_activity": "Today's Activity", "daily_loss": "Daily Loss",
+    "open_trade": "Open Trade", "trade_available": "Available", "cooldown_remaining": "Cooldown: {{minutes}} min remaining"
+  },
+  "trade": {
+    "market": "Market", "limit": "Limit", "order_price": "Order Price", "last_price": "Last Price",
+    "market_price": "Market Price", "qty": "Qty", "margin": "Margin (1x)", "tp_sl": "TP/SL Settings",
+    "risk": "-1R Risk", "tp_auto": "TP Auto", "sl_auto": "SL Auto", "rr_ratio": "RR Ratio",
+    "max_rr": "Max RR", "available_balance": "Available Balance", "potential_profit": "Potential Profit",
+    "risk_limit": "Risk Limit", "trades_usage": "{{used}}/{{max}} Trades",
+    "long_buy": "LONG / BUY", "short_sell": "SHORT / SELL", "position_size": "Position Size",
+    "take_profit": "Take Profit", "leverage": "Leverage", "leverage_locked": "1x (locked)"
+  },
+  "active_trade": {
+    "title": "Active Trade", "entry": "Entry", "current": "Current", "unrealized_pnl": "Unrealized P&L",
+    "duration": "Duration", "close_trade": "Close Trade", "modify_tp_sl": "Modify TP/SL"
+  },
+  "journal": {
+    "title": "Trading Journal", "all": "All", "wins": "Wins", "losses": "Losses",
+    "total_trades": "Total Trades", "emotion_entry": "Emotion at entry", "emotion_exit": "Emotion at exit",
+    "notes": "Notes", "notes_placeholder": "What did you learn from this trade?",
+    "save": "Save", "must_fill": "Required before you can trade again"
+  },
+  "emotions": { "tenang": "Calm", "ragu": "Hesitant", "fomo": "FOMO", "takut": "Fearful", "puas": "Satisfied", "greedy": "Greedy", "panik": "Panicked", "relief": "Relieved" },
+  "stats": {
+    "title": "Statistics", "overview": "Overview", "total_trades": "Total Trades", "win_rate": "Win Rate",
+    "profit_factor": "Profit Factor", "total_pnl": "Total P&L", "equity_curve": "Equity Curve",
+    "avg_win": "Average Win", "avg_loss": "Average Loss", "max_drawdown": "Max Drawdown",
+    "best_streak": "Best Streak", "worst_streak": "Worst Streak", "emotional_patterns": "Emotional Patterns",
+    "most_wins_when": "Most wins when", "most_losses_when": "Most losses when",
+    "phase_progress": "Phase Progress"
+  },
+  "lock": {
+    "locked": "Account Locked", "consecutive_loss": "3 consecutive losses",
+    "daily_limit": "Daily limit 3R reached", "unlock_at": "Unlocks at", "remaining": "Remaining",
+    "last_trades": "Last 3 trades", "lock_this_month": "Locks this month",
+    "cant_trade": "Cannot trade — account locked", "tips_title": "Tips while locked",
+    "tip_1": "Review your last 3 trades in Journal", "tip_2": "Check patterns: early entry? Tight SL?",
+    "tip_3": "Take a break, don't look at charts", "review_journal": "Review Journal", "view_stats": "View Stats"
+  },
+  "reflection": {
+    "title": "Reflection Before Continuing", "subtitle": "You were locked due to 3 consecutive losses.",
+    "q1": "What was the main mistake in your last 3 trades?", "q1_placeholder": "Example: entered too early, impatient...",
+    "q2": "What will you do differently?", "q2_placeholder": "Example: wait for confirmation, set wider SL...",
+    "q3": "How do you feel right now?", "calm": "Calm", "still_upset": "Still upset", "ready": "Ready to focus",
+    "upset_warning": "Recommend waiting another hour before trading", "submit": "Submit & Start Trading"
+  },
+  "evaluation": {
+    "title": "Evaluation Mode", "subtitle": "Total drawdown reached 10R",
+    "peak": "Peak balance", "current": "Current balance", "drawdown": "Drawdown",
+    "cant_trade": "Trading paused until review is complete", "checklist": "Review Checklist",
+    "check_1": "Review all losing trades", "check_2": "Identify top 3 mistakes",
+    "check_3": "Write an improvement plan", "check_4": "Reconfirm trading rules",
+    "start_review": "Start Review", "after_review": "After review: high water mark reset, phase returns to Phase 1"
+  },
+  "profile": {
+    "title": "Profile", "member_since": "Member since", "connected_exchange": "Connected Exchange",
+    "connected": "Connected", "disconnect": "Disconnect", "change_key": "Change API Key",
+    "current_phase": "Current Phase", "active_rules": "Active Rules", "notifications": "Notifications",
+    "lock_alerts": "Lock notifications", "cooldown_reminders": "Cooldown reminders",
+    "daily_summary": "Daily summary", "language": "Language", "theme": "Theme",
+    "dark": "Dark", "light": "Light", "logout": "Logout"
+  },
+  "onboarding": {
+    "connect_title": "Connect Exchange", "connect_subtitle": "Select your exchange and enter your API key",
+    "api_key": "API Key", "api_secret": "API Secret",
+    "api_hint": "Only enable Read + Trade permissions. DO NOT enable Withdraw.",
+    "how_to": "How to create API key", "connect_verify": "Connect & Verify",
+    "safe_note": "Your funds stay safe on the exchange", "rules_title": "Your Trading Rules",
+    "rules_subtitle": "These rules protect you from psychological mistakes",
+    "accept": "I have read and agree to these trading rules", "start": "Start Trading"
+  },
+  "auth": {
+    "login": "Login", "register": "Register", "email": "Email", "password": "Password",
+    "confirm_password": "Confirm Password", "full_name": "Full Name", "forgot": "Forgot password?",
+    "or": "or", "google": "Sign in with Google", "google_register": "Sign up with Google",
+    "no_account": "Don't have an account?", "has_account": "Already have an account?",
+    "register_free": "Sign up free", "magic_link": "Or sign in with magic link",
+    "send_magic_link": "Send Magic Link", "magic_link_sent": "Check your email for the login link!",
+    "logout_success": "Logged out successfully"
+  },
+  "landing": {
+    "hero_title": "Trade Without Emotions.\nProfit Without Drama.",
+    "hero_subtitle": "Garda protects you from the psychological mistakes that destroy 80% of beginner traders.",
+    "cta": "Start Free", "cta_sub": "No credit card needed. Start trading immediately.",
+    "traders_joined": "{{count}} traders joined",
+    "problem_title": "Why Do 80% of Beginner Traders Lose Capital?",
+    "problem_1_title": "Revenge Trading", "problem_1_desc": "Lose, then immediately open another position. High emotion, zero analysis.",
+    "problem_2_title": "Overleveraging", "problem_2_desc": "Using 50x-125x leverage. One wrong candle = margin call.",
+    "problem_3_title": "Overtrading", "problem_3_desc": "10 trades a day, all random entries. No plan, no stop loss.",
+    "problem_closing": "It's not the strategy that's wrong. It's uncontrolled emotions.",
+    "features_title": "Garda = Your Trading Bodyguard",
+    "f1_title": "Auto Risk 1%", "f1_desc": "Every trade is automatically calculated. Max risk 1% per trade. Non-negotiable.",
+    "f2_title": "Cooling System", "f2_desc": "3 consecutive losses? Account auto-locked. Cool down, review, come back stronger.",
+    "f3_title": "Phase System", "f3_desc": "Start strict, unlock more flexibility as you prove consistency.",
+    "f4_title": "Smart Journal", "f4_desc": "Every trade auto-logged. See emotional patterns and when you tend to lose.",
+    "f5_title": "Multi-Exchange", "f5_desc": "Bybit, Binance, OKX. Your funds stay on the exchange. We never hold your money.",
+    "how_title": "How It Works", "how_1": "Connect Exchange", "how_1_desc": "Enter your API key. Read + Trade permission only.",
+    "how_2": "Trade with Guardrails", "how_2_desc": "You choose pair and direction. Garda enforces risk limits.",
+    "how_3": "Grow Gradually", "how_3_desc": "Prove consistency, unlock more flexibility.",
+    "pricing_title": "Free. Seriously.", "pricing_desc": "Garda is completely free for everyone. Sign up and start trading with full protection.",
+    "pricing_note": "Early adopters get special perks when Pro plans launch.",
+    "faq_title": "Frequently Asked Questions", "final_cta": "Ready to Trade Without Emotions?", "footer_copy": "© 2026 Garda. All rights reserved."
+  },
+  "common": {
+    "save": "Save", "cancel": "Cancel", "confirm": "Confirm", "back": "Back", "next": "Next",
+    "loading": "Loading...", "error": "An error occurred", "retry": "Try again",
+    "today": "Today", "yesterday": "Yesterday", "this_week": "This week", "this_month": "This month",
+    "win": "Win", "loss": "Loss", "open": "Open", "closed": "Closed", "switch_lang": "Bahasa Indonesia"
+  }
+}

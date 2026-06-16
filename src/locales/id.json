@@ -1,0 +1,115 @@
+{
+  "app": { "name": "Garda", "tagline": "Trading Tanpa Emosi" },
+  "nav": { "home": "Beranda", "trade": "Trade", "stats": "Statistik", "journal": "Jurnal", "profile": "Profil" },
+  "dashboard": {
+    "balance": "Total Balance", "pnl_today": "P&L Hari Ini", "phase": "Phase",
+    "win_rate": "Win Rate", "daily_activity": "Aktivitas Hari Ini", "daily_loss": "Daily Loss",
+    "open_trade": "Buka Trade", "trade_available": "Tersedia", "cooldown_remaining": "Cooldown: {{minutes}} menit tersisa"
+  },
+  "trade": {
+    "market": "Market", "limit": "Limit", "order_price": "Harga Order", "last_price": "Harga Terakhir",
+    "market_price": "Harga Market", "qty": "Qty", "margin": "Margin (1x)", "tp_sl": "Pengaturan TP/SL",
+    "risk": "-1R Risiko", "tp_auto": "TP Auto", "sl_auto": "SL Auto", "rr_ratio": "Rasio RR",
+    "max_rr": "Max RR", "available_balance": "Saldo Tersedia", "potential_profit": "Potensi Profit",
+    "risk_limit": "Batas Risiko", "trades_usage": "{{used}}/{{max}} Trade",
+    "long_buy": "LONG / BUY", "short_sell": "SHORT / SELL", "position_size": "Ukuran Posisi",
+    "take_profit": "Take Profit", "leverage": "Leverage", "leverage_locked": "1x (terkunci)"
+  },
+  "active_trade": {
+    "title": "Trade Aktif", "entry": "Entry", "current": "Saat Ini", "unrealized_pnl": "P&L Belum Direalisasi",
+    "duration": "Durasi", "close_trade": "Tutup Trade", "modify_tp_sl": "Ubah TP/SL"
+  },
+  "journal": {
+    "title": "Jurnal Trading", "all": "Semua", "wins": "Menang", "losses": "Kalah",
+    "total_trades": "Total Trade", "emotion_entry": "Emosi saat entry", "emotion_exit": "Emosi saat exit",
+    "notes": "Catatan", "notes_placeholder": "Apa yang kamu pelajari dari trade ini?",
+    "save": "Simpan", "must_fill": "Wajib diisi sebelum bisa trade lagi"
+  },
+  "emotions": { "tenang": "Tenang", "ragu": "Ragu", "fomo": "FOMO", "takut": "Takut", "puas": "Puas", "greedy": "Serakah", "panik": "Panik", "relief": "Lega" },
+  "stats": {
+    "title": "Statistik", "overview": "Ringkasan", "total_trades": "Total Trade", "win_rate": "Win Rate",
+    "profit_factor": "Profit Factor", "total_pnl": "Total P&L", "equity_curve": "Kurva Ekuitas",
+    "avg_win": "Rata-rata Menang", "avg_loss": "Rata-rata Kalah", "max_drawdown": "Max Drawdown",
+    "best_streak": "Streak Terbaik", "worst_streak": "Streak Terburuk", "emotional_patterns": "Pola Emosi",
+    "most_wins_when": "Paling sering menang saat", "most_losses_when": "Paling sering kalah saat",
+    "phase_progress": "Progres Phase"
+  },
+  "lock": {
+    "locked": "Akun Terkunci", "consecutive_loss": "3 kalah berturut-turut",
+    "daily_limit": "Batas harian 3R tercapai", "unlock_at": "Unlock pada", "remaining": "Tersisa",
+    "last_trades": "3 trade terakhir", "lock_this_month": "Lock bulan ini",
+    "cant_trade": "Tidak bisa trade — akun terkunci", "tips_title": "Tips saat terkunci",
+    "tip_1": "Review 3 trade terakhir di Jurnal", "tip_2": "Cek apakah ada pola: entry terlalu dini? SL terlalu ketat?",
+    "tip_3": "Istirahat, jangan lihat chart", "review_journal": "Review Jurnal", "view_stats": "Lihat Statistik"
+  },
+  "reflection": {
+    "title": "Refleksi Sebelum Lanjut", "subtitle": "Kamu baru di-lock karena 3 consecutive losses.",
+    "q1": "Apa kesalahan utama 3 trade lalu?", "q1_placeholder": "Contoh: entry terlalu dini, tidak sabar...",
+    "q2": "Apa yang akan kamu lakukan berbeda?", "q2_placeholder": "Contoh: tunggu konfirmasi, set SL lebih lebar...",
+    "q3": "Emosi kamu sekarang?", "calm": "Tenang", "still_upset": "Masih kesal", "ready": "Siap fokus",
+    "upset_warning": "Disarankan tunggu 1 jam lagi sebelum trading", "submit": "Submit & Mulai Trading"
+  },
+  "evaluation": {
+    "title": "Mode Evaluasi", "subtitle": "Total drawdown mencapai 10R",
+    "peak": "Balance tertinggi", "current": "Balance saat ini", "drawdown": "Drawdown",
+    "cant_trade": "Trading tidak bisa dilanjutkan sampai review selesai", "checklist": "Checklist Review",
+    "check_1": "Review semua trade yang loss", "check_2": "Identifikasi 3 kesalahan terbesar",
+    "check_3": "Tulis rencana perbaikan", "check_4": "Konfirmasi ulang aturan trading",
+    "start_review": "Mulai Review", "after_review": "Setelah review: high water mark di-reset, phase kembali ke Phase 1"
+  },
+  "profile": {
+    "title": "Profil", "member_since": "Member sejak", "connected_exchange": "Exchange Terhubung",
+    "connected": "Terhubung", "disconnect": "Putuskan", "change_key": "Ganti API Key",
+    "current_phase": "Phase Saat Ini", "active_rules": "Aturan Aktif", "notifications": "Notifikasi",
+    "lock_alerts": "Notifikasi lock", "cooldown_reminders": "Pengingat cooldown",
+    "daily_summary": "Ringkasan harian", "language": "Bahasa", "theme": "Tema",
+    "dark": "Gelap", "light": "Terang", "logout": "Keluar"
+  },
+  "onboarding": {
+    "connect_title": "Hubungkan Exchange", "connect_subtitle": "Pilih exchange dan masukkan API key kamu",
+    "api_key": "API Key", "api_secret": "API Secret",
+    "api_hint": "Hanya aktifkan permission Read + Trade. JANGAN aktifkan Withdraw.",
+    "how_to": "Cara buat API key", "connect_verify": "Hubungkan & Verifikasi",
+    "safe_note": "Dana kamu tetap aman di exchange", "rules_title": "Aturan Trading Kamu",
+    "rules_subtitle": "Aturan ini melindungi kamu dari kesalahan psikologis",
+    "accept": "Saya membaca dan setuju dengan aturan trading ini", "start": "Mulai Trading"
+  },
+  "auth": {
+    "login": "Masuk", "register": "Daftar", "email": "Email", "password": "Password",
+    "confirm_password": "Konfirmasi Password", "full_name": "Nama Lengkap", "forgot": "Lupa password?",
+    "or": "atau", "google": "Masuk dengan Google", "google_register": "Daftar dengan Google",
+    "no_account": "Belum punya akun?", "has_account": "Sudah punya akun?",
+    "register_free": "Daftar gratis", "magic_link": "Atau masuk dengan magic link",
+    "send_magic_link": "Kirim Magic Link", "magic_link_sent": "Cek email kamu untuk link login!",
+    "logout_success": "Berhasil keluar"
+  },
+  "landing": {
+    "hero_title": "Trading Tanpa Emosi.\nProfit Tanpa Drama.",
+    "hero_subtitle": "Garda melindungi kamu dari kesalahan psikologis yang menghancurkan 80% trader pemula.",
+    "cta": "Mulai Gratis", "cta_sub": "Tidak perlu kartu kredit. Langsung trading.",
+    "traders_joined": "{{count}} trader sudah bergabung",
+    "problem_title": "Kenapa 80% Trader Pemula Kehilangan Modal?",
+    "problem_1_title": "Revenge Trading", "problem_1_desc": "Kalah langsung buka posisi lagi. Emosi tinggi, analisis nol.",
+    "problem_2_title": "Overleveraging", "problem_2_desc": "Pakai 50x-125x leverage. Satu candle salah = margin call.",
+    "problem_3_title": "Overtrading", "problem_3_desc": "10 trade sehari, semua asal masuk. Tidak ada plan, tidak ada SL.",
+    "problem_closing": "Bukan strategi yang salah. Tapi emosi yang tidak terkontrol.",
+    "features_title": "Garda = Bodyguard Trading Kamu",
+    "f1_title": "Auto Risk 1%", "f1_desc": "Setiap trade otomatis dihitung. Risiko max 1% per trade. Tidak bisa diubah.",
+    "f2_title": "Cooling System", "f2_desc": "3x kalah berturut? Account lock otomatis. Cool down, review, comeback.",
+    "f3_title": "Phase System", "f3_desc": "Mulai ketat, makin longgar seiring kamu buktikan konsistensi.",
+    "f4_title": "Smart Journal", "f4_desc": "Setiap trade otomatis di-log. Lihat pola emosi dan kapan kamu sering kalah.",
+    "f5_title": "Multi-Exchange", "f5_desc": "Bybit, Binance, OKX. Dana tetap di exchange. Kami tidak pegang uang kamu.",
+    "how_title": "Cara Kerja", "how_1": "Connect Exchange", "how_1_desc": "Masukkan API key. Read + Trade permission saja.",
+    "how_2": "Trade dengan Rules", "how_2_desc": "Kamu pilih pair dan arah. Garda jaga batas risiko.",
+    "how_3": "Tumbuh Bertahap", "how_3_desc": "Buktikan konsistensi, unlock lebih banyak fleksibilitas.",
+    "pricing_title": "Gratis. Serius.", "pricing_desc": "Garda sekarang gratis untuk semua orang. Daftar dan langsung trading dengan perlindungan penuh.",
+    "pricing_note": "Early adopter mendapat keuntungan spesial ketika paket Pro hadir nanti.",
+    "faq_title": "Pertanyaan Umum", "final_cta": "Siap Trading Tanpa Emosi?", "footer_copy": "© 2026 Garda. All rights reserved."
+  },
+  "common": {
+    "save": "Simpan", "cancel": "Batal", "confirm": "Konfirmasi", "back": "Kembali", "next": "Lanjut",
+    "loading": "Memuat...", "error": "Terjadi kesalahan", "retry": "Coba lagi",
+    "today": "Hari ini", "yesterday": "Kemarin", "this_week": "Minggu ini", "this_month": "Bulan ini",
+    "win": "Menang", "loss": "Kalah", "open": "Buka", "closed": "Tutup", "switch_lang": "English"
+  }
+}
