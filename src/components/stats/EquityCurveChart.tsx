@@ -137,7 +137,7 @@ export function EquityCurveChart() {
                 fontSize: '12px',
                 color: 'var(--color-text)',
               }}
-              formatter={(value: number) => [formatUSDT(value), 'Balance']}
+              formatter={(value: any) => [formatUSDT(value as number), 'Balance']}
             />
             <Area
               type="monotone"

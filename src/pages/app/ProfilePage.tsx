@@ -129,7 +129,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Logout */}
-      <button onClick={handleLogout}
+      <button onClick={() => signOut()}
         className="w-full garda-btn-secondary flex items-center justify-center gap-2 text-garda-pink hover:bg-garda-pink/5">
         <LogOut className="w-4 h-4" /> {t('profile.logout')}
       </button>

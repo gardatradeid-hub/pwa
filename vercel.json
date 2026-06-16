@@ -1,0 +1,34 @@
+{
+  "name": "garda",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "routes": [
+    {
+      "src": "/app/(.*)",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/login(.*)",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/register(.*)",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/onboarding(.*)",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "env": {
+    "VITE_SUPABASE_URL": "https://zwmfavbdlzrftwhuewuk.supabase.co",
+    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp3bWZhdmJkbHpyZnR3aHVld3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MTQzODUsImV4cCI6MjA5NzE5MDM4NX0.SoJjgUzz3DhAqAkYBpYK7EqN2pRu58QcSc5705YPa5k",
+    "VITE_APP_NAME": "Garda",
+    "VITE_APP_URL": "https://garda.vercel.app"
+  }
+}

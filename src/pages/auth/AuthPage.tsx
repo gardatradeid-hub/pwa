@@ -22,7 +22,7 @@ const registerSchema = z.object({
   full_name: z.string().min(2, 'Nama minimal 2 karakter').max(100),
   email: z.string().email('Email tidak valid'),
   password: z.string().min(8, 'Password minimal 8 karakter'),
-  accept_rules: z.literal(true, { errorMap: () => ({ message: 'Harus setuju dengan aturan trading' }) }),
+  accept_rules: z.literal(true, { message: 'Harus setuju dengan aturan trading' }),
 });
 
 type LoginInputs = z.infer<typeof loginSchema>;
