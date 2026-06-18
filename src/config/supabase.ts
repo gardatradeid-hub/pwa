@@ -4,13 +4,11 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    'Supabase credentials not found. Auth and database features will be disabled. ' +
-    'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env.local file.'
-  );
+  const msg =
+    'Supabase credentials missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY ' +
+    'in your Vercel dashboard (Settings > Environment Variables) and .env.local.';
+  // Hard fail in production — no fallback to fake URLs that silently break OAuth.
+  throw new Error(msg);
 }
 
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
-);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
