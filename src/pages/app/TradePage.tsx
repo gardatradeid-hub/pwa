@@ -1,6 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  createChart,
+  CandlestickSeries,
+  HistogramSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type CandlestickData,
+  type HistogramData,
+  type Time,
+  ColorType,
+} from 'lightweight-charts';
 import { useUserStore } from '@/store/useUserStore';
 import { useTradeStore } from '@/store/useTradeStore';
 import { useTimer } from '@/hooks/useTimer';
@@ -12,23 +23,152 @@ import type { OHLCVData, TickerData } from '@/types/exchange';
 import {
   ArrowUp, ArrowDown, Clock, AlertCircle, CheckCircle2,
   XCircle, Shield, TrendingUp, TrendingDown, Target, Coins,
-  ChevronDown,
+  ChevronDown, Loader2,
 } from 'lucide-react';
 
 // =====================================================
-// MINI CANDLESTICK CHART (lightweight-charts wrapper)
+// CANDLESTICK CHART (lightweight-charts — Bybit style)
 // =====================================================
-function CandlestickChart({ data, ticker }: { data: OHLCVData[]; ticker: TickerData | null }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedTimeframe, setSelectedTimeframe] = useState('15m');
 
-  const timeframes = [
-    { label: '1m', value: '1m' },
-    { label: '5m', value: '5m' },
-    { label: '15m', value: '15m' },
-    { label: '1h', value: '1h' },
-    { label: '4h', value: '4h' },
-  ];
+const TIMEFRAMES = [
+  { label: '1m', value: '1m' },
+  { label: '5m', value: '5m' },
+  { label: '15m', value: '15m' },
+  { label: '30m', value: '30m' },
+  { label: '1h', value: '1h' },
+  { label: '4h', value: '4h' },
+] as const;
+
+const REFETCH_INTERVALS: Record<string, number> = {
+  '1m': 5_000,
+  '5m': 10_000,
+  '15m': 15_000,
+  '30m': 20_000,
+  '1h': 30_000,
+  '4h': 60_000,
+};
+
+// Warna ala Bybit dark terminal
+const CHART_COLORS = {
+  background: '#0A0A14',
+  text: '#8A8AA0',
+  grid: 'rgba(42, 42, 62, 0.6)',
+  border: '#2A2A3E',
+  candleUp: '#00E5C3',
+  candleDown: '#FF0080',
+  wickUp: '#00E5C3',
+  wickDown: '#FF0080',
+  volumeUp: 'rgba(0, 229, 195, 0.3)',
+  volumeDown: 'rgba(255, 0, 128, 0.3)',
+  crosshair: '#4A4A6A',
+};
+
+interface CandlestickChartProps {
+  ohlcv: OHLCVData[];
+  ticker: TickerData | null;
+  selectedTimeframe: string;
+  onTimeframeChange: (tf: string) => void;
+  isLoading: boolean;
+}
+
+function CandlestickChart({ ohlcv, ticker, selectedTimeframe, onTimeframeChange, isLoading }: CandlestickChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  // Init / resize chart
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const chart = createChart(containerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: CHART_COLORS.background },
+        textColor: CHART_COLORS.text,
+      },
+      grid: {
+        vertLines: { color: CHART_COLORS.grid },
+        horzLines: { color: CHART_COLORS.grid },
+      },
+      crosshair: {
+        mode: 0, // normal crosshair
+        vertLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.crosshair },
+        horzLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.crosshair },
+      },
+      rightPriceScale: {
+        borderColor: CHART_COLORS.border,
+        scaleMargins: { top: 0.1, bottom: 0.25 },
+      },
+      timeScale: {
+        borderColor: CHART_COLORS.border,
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      handleScroll: { vertTouchDrag: false },
+    });
+
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: CHART_COLORS.candleUp,
+      downColor: CHART_COLORS.candleDown,
+      borderUpColor: CHART_COLORS.candleUp,
+      borderDownColor: CHART_COLORS.candleDown,
+      wickUpColor: CHART_COLORS.wickUp,
+      wickDownColor: CHART_COLORS.wickDown,
+    });
+
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+    });
+
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.85, bottom: 0 },
+    });
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    volumeSeriesRef.current = volumeSeries;
+
+    const resize = () => {
+      if (containerRef.current) {
+        chart.applyOptions({ width: containerRef.current.clientWidth, height: containerRef.current.clientHeight });
+      }
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    return () => {
+      window.removeEventListener('resize', resize);
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
+    };
+  }, []);
+
+  // Update data when ohlcv changes
+  useEffect(() => {
+    if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
+
+    const candles: CandlestickData[] = ohlcv.map((c) => ({
+      time: c.time as Time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+
+    const volumes: HistogramData[] = ohlcv.map((c) => ({
+      time: c.time as Time,
+      value: c.volume,
+      color: c.close >= c.open ? CHART_COLORS.volumeUp : CHART_COLORS.volumeDown,
+    }));
+
+    candleSeriesRef.current.setData(candles);
+    volumeSeriesRef.current.setData(volumes);
+    chartRef.current?.timeScale().fitContent();
+  }, [ohlcv]);
 
   const changeColor = (ticker?.changePercent ?? 0) >= 0 ? 'text-garda-cyan' : 'text-garda-pink';
 
@@ -45,18 +185,20 @@ function CandlestickChart({ data, ticker }: { data: OHLCVData[]; ticker: TickerD
               {ticker.changePercent >= 0 ? '+' : ''}{ticker.changePercent?.toFixed(2)}%
             </span>
           </div>
-          <div className="text-xs text-garda-text-muted font-mono-num">
-            H: {formatPrice(ticker.high)} L: {formatPrice(ticker.low)}
+          <div className="text-xs text-garda-text-muted space-x-3 font-mono-num">
+            <span>H: {formatPrice(ticker.high)}</span>
+            <span>L: {formatPrice(ticker.low)}</span>
+            <span>V: {(ticker.volume ?? 0).toLocaleString()}</span>
           </div>
         </div>
       )}
 
       {/* Timeframe selector */}
       <div className="flex gap-1">
-        {timeframes.map((tf) => (
+        {TIMEFRAMES.map((tf) => (
           <button
             key={tf.value}
-            onClick={() => setSelectedTimeframe(tf.value)}
+            onClick={() => onTimeframeChange(tf.value)}
             className={cn(
               'px-2.5 py-1 rounded text-xs font-medium transition-colors',
               selectedTimeframe === tf.value
@@ -70,55 +212,25 @@ function CandlestickChart({ data, ticker }: { data: OHLCVData[]; ticker: TickerD
       </div>
 
       {/* Chart area */}
-      <div
-        ref={containerRef}
-        className="w-full h-[280px] rounded-xl border border-garda-border bg-garda-surface flex items-center justify-center"
-      >
-        {data.length === 0 ? (
-          <div className="text-center">
-            <Clock className="w-8 h-8 text-garda-text-muted mx-auto mb-2 animate-pulse-glow" />
-            <p className="text-xs text-garda-text-muted">Memuat chart...</p>
-          </div>
-        ) : (
-          <div className="w-full h-full relative">
-            {/* Simple OHLCV visualizer (lightweight-charts will replace this in Sprint 3) */}
-            <div className="absolute inset-0 flex items-end gap-[2px] px-2 pb-2">
-              {data.slice(-50).map((candle, i) => {
-                const maxH = 250;
-                const maxPrice = Math.max(...data.slice(-50).map(c => c.high));
-                const minPrice = Math.min(...data.slice(-50).map(c => c.low));
-                const range = maxPrice - minPrice || 1;
-                const h = ((candle.close - minPrice) / range) * maxH;
-                const isGreen = candle.close >= candle.open;
-                return (
-                  <div
-                    key={i}
-                    className="flex-1 flex flex-col justify-end"
-                    style={{ height: `${h}px` }}
-                  >
-                    <div
-                      className={cn(
-                        'w-full rounded-[1px]',
-                        isGreen ? 'bg-garda-cyan' : 'bg-garda-pink'
-                      )}
-                      style={{
-                        height: `${Math.max(1, Math.abs(candle.close - candle.open) / range * maxH)}px`,
-                        opacity: 0.8,
-                      }}
-                    />
-                  </div>
-                );
-              })}
+      <div className="relative w-full h-[340px] rounded-xl border border-garda-border overflow-hidden bg-garda-bg">
+        {isLoading && ohlcv.length === 0 && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-garda-bg/80">
+            <div className="text-center">
+              <Loader2 className="w-8 h-8 text-garda-cyan mx-auto mb-2 animate-spin" />
+              <p className="text-xs text-garda-text-muted">Memuat chart...</p>
             </div>
           </div>
         )}
+        <div ref={containerRef} className="w-full h-full" />
+        <div ref={tooltipRef} className="absolute top-2 left-2 pointer-events-none" />
       </div>
 
-      {/* Volume info */}
+      {/* Spread info */}
       {ticker && (
         <div className="flex justify-between text-xs text-garda-text-muted">
-          <span>Vol: {ticker.volume?.toLocaleString()}</span>
-          <span>Spread: {formatPrice((ticker.ask || 0) - (ticker.bid || 0))}</span>
+          <span>Bid: {formatPrice(ticker.bid ?? 0)}</span>
+          <span>Ask: {formatPrice(ticker.ask ?? 0)}</span>
+          <span>Spread: {formatPrice((ticker.ask ?? 0) - (ticker.bid ?? 0))}</span>
         </div>
       )}
     </div>
@@ -128,14 +240,6 @@ function CandlestickChart({ data, ticker }: { data: OHLCVData[]; ticker: TickerD
 // =====================================================
 // ORDER PANEL
 // =====================================================
-interface OrderFormState {
-  symbol: string;
-  side: 'long' | 'short';
-  orderType: 'market' | 'limit';
-  entryPrice: string;
-  stopLoss: string;
-  rrRatio: number;
-}
 
 const SUPPORTED_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'SOL/USDT', 'BNB/USDT'];
 const RR_OPTIONS = [2, 3, 5];
@@ -146,7 +250,6 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
   const { form, setSymbol, setSide, setEntryPrice, setStopLoss } = useTradeStore();
   const { tradesToday, activeTrade, isLocked, cooldownUntil } = useTradeStore();
   const cooldown = useTimer(cooldownUntil);
-  const { profile } = useUserStore();
 
   const [rrRatio, setRrRatio] = useState(2);
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
@@ -186,7 +289,7 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
     },
     {
       label: t('dashboard.daily_loss'),
-      passed: true, // Will be checked server-side
+      passed: true,
       icon: TrendingDown,
     },
   ];
@@ -213,7 +316,6 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
         return;
       }
 
-      // Navigate or show success
       useTradeStore.getState().setActiveTrade(result.trade);
       useTradeStore.getState().setTradesToday(tradesToday + 1, maxTrades);
     } catch (e: any) {
@@ -232,7 +334,6 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
       if (result.success) {
         useTradeStore.getState().setActiveTrade(null);
         useTradeStore.getState().setShowPostTradeModal(true, activeTrade.id);
-        // Check lock
         if (result.lockTriggered) {
           useTradeStore.getState().setIsLocked(true);
           useTradeStore.getState().setCooldownUntil(result.lockTriggered.unlocksAt);
@@ -499,7 +600,7 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
       {/* Locked notice */}
       {isLocked && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-garda-pink/10 border border-garda-pink/20">
-          <LockIcon className="w-4 h-4 text-garda-pink" />
+          <AlertCircle className="w-4 h-4 text-garda-pink" />
           <span className="text-sm text-garda-pink">{t('lock.cant_trade')}</span>
         </div>
       )}
@@ -512,10 +613,6 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
   );
 }
 
-function LockIcon({ className }: { className?: string }) {
-  return <AlertCircle className={className} />;
-}
-
 // =====================================================
 // TRADE PAGE MAIN
 // =====================================================
@@ -526,50 +623,44 @@ export default function TradePage() {
   const { form, setEntryPrice, setStopLoss, ticker, ohlcv, setTicker, setOhlcv, isLocked } = useTradeStore();
   const phase = useUserStore.getState().getCurrentPhase();
   const [isLoading, setIsLoading] = useState(true);
+  const [tf, setTf] = useState('15m');
 
-  // Fetch market data
-  useEffect(() => {
-    let mounted = true;
+  // Fetch OHLCV based on symbol + timeframe
+  const fetchMarketData = useCallback(async () => {
+    try {
+      const [tickerData, ohlcvData] = await Promise.all([
+        fetchTicker(form.symbol),
+        fetchOHLCV(form.symbol, tf, 100),
+      ]);
 
-    async function loadMarketData() {
-      try {
-        const [tickerData, ohlcvData] = await Promise.all([
-          fetchTicker(form.symbol),
-          fetchOHLCV(form.symbol, '15m', 100),
-        ]);
-
-        if (!mounted) return;
-
-        if (tickerData) {
-          setTicker(tickerData);
-          // Auto-fill entry price if empty
-          if (!form.entryPrice) {
-            setEntryPrice(tickerData.last);
-          }
-        }
-        if (ohlcvData.length > 0) {
-          setOhlcv(ohlcvData);
-        }
-      } catch (err) {
-        console.error('Fetch market data error:', err);
-      } finally {
-        if (mounted) setIsLoading(false);
+      if (tickerData) {
+        setTicker(tickerData);
+        if (!form.entryPrice) setEntryPrice(tickerData.last);
       }
+      if (ohlcvData.length > 0) setOhlcv(ohlcvData);
+    } catch (err) {
+      console.error('Fetch market data error:', err);
+    } finally {
+      setIsLoading(false);
     }
+  }, [form.symbol, tf]);
 
-    loadMarketData();
+  // Initial fetch + refetch on symbol/timeframe change
+  useEffect(() => {
+    setIsLoading(ohlcv.length === 0);
+    fetchMarketData();
+  }, [form.symbol, tf]);
 
-    // Poll ticker every 5s
+  // Poll ticker based on timeframe
+  useEffect(() => {
+    const interval = REFETCH_INTERVALS[tf] ?? 15_000;
     const poll = setInterval(async () => {
       const td = await fetchTicker(form.symbol);
-      if (td && mounted) setTicker(td);
-    }, 5000);
+      if (td) setTicker(td);
+    }, interval);
 
-    return () => {
-      mounted = false;
-      clearInterval(poll);
-    };
-  }, [form.symbol]);
+    return () => clearInterval(poll);
+  }, [form.symbol, tf]);
 
   // Redirect if locked
   useEffect(() => {
@@ -590,7 +681,13 @@ export default function TradePage() {
       </div>
 
       {/* Chart */}
-      <CandlestickChart data={ohlcv} ticker={ticker} />
+      <CandlestickChart
+        ohlcv={ohlcv}
+        ticker={ticker}
+        selectedTimeframe={tf}
+        onTimeframeChange={setTf}
+        isLoading={isLoading}
+      />
 
       {/* Order Panel */}
       <OrderPanel balance={balance || 1000} ticker={ticker} maxTrades={phase.max_trades} />
