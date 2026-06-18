@@ -12,7 +12,7 @@ export function calculatePositionSize(
 
   const riskPercent = 0.01; // 1% fixed
   const riskAmount = balance * riskPercent;
-  const leverage = 1; // Fixed 1x
+  const leverage = 2; // TODO: revert to 1x before public launch
 
   // Distance from entry to stop loss in percentage
   const slDistancePct = Math.abs(entryPrice - stopLoss) / entryPrice;

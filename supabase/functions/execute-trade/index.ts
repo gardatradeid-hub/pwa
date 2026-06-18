@@ -476,11 +476,9 @@ Deno.serve(async (req: Request) => {
     const market = (exchange as any).markets?.[symbol];
     const marketSymbol = market?.id ?? symbol;
 
-    // Set leverage to 1x. On Bybit testnet or demo accounts this can fail
-    // with permission errors — wrap in try/catch so the trade still goes through
-    // if the account already defaults to 1x cross margin.
+    // Set leverage to 2x (TODO: revert to 1x before public launch).
     try {
-      await exchange.setLeverage(1, marketSymbol);
+      await exchange.setLeverage(2, marketSymbol);
     } catch (levErr: any) {
       console.warn('setLeverage warning — continuing:', levErr?.message || levErr);
       // If the error is fatal (not just lever already set), re-throw.

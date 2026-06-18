@@ -117,9 +117,10 @@ interface OrderPanelProps {
 function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLocked, cooldownUntil, symbol, onSymbolChange, onExecute, onClose, isSubmitting, error, onPositionLinesChange }: OrderPanelProps) {
   const { t } = useTranslation(); const cooldown = useTimer(cooldownUntil);
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
-  const [rrRatio, setRrRatio] = useState(2);
+  const [rrRatio, setRrRatio] = useState<number>(0); // 0 = none selected
   const [qtyPct, setQtyPct] = useState(100);
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
+  const [showDirectionPopup, setShowDirectionPopup] = useState(false);
 
   const coinUnit = getCoinUnit(symbol);
   const currentPrice = ticker?.last || 0;
@@ -128,9 +129,26 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
   const marginUsed = balance * (qtyPct / 100);
   const quantity = currentPrice > 0 ? marginUsed / currentPrice : 0;
   const slDistance = quantity > 0 ? riskAmount / quantity : 0;
-  const stopLoss = currentPrice > 0 && slDistance > 0 ? currentPrice - slDistance : 0;
-  const takeProfit = currentPrice > 0 && slDistance > 0 ? currentPrice + slDistance * rrRatio : 0;
-  const potentialProfit = riskAmount * rrRatio;
+  // SL + TP: shown only after user picks direction + RR ratio
+  const direction = rrRatio > 0 ? (showDirectionPopup ? null : (slDistance > 0 ? 'long' : null)) : null;
+  const stopLoss = currentPrice > 0 && slDistance > 0 && rrRatio > 0 ? currentPrice - slDistance : 0;
+  const takeProfit = currentPrice > 0 && slDistance > 0 && rrRatio > 0 ? currentPrice + slDistance * rrRatio : 0;
+  const potentialProfit = rrRatio > 0 ? riskAmount * rrRatio : 0;
+
+  const handleRrSelect = (rr: number) => {
+    setRrRatio(rr);
+    setShowDirectionPopup(true);
+  };
+
+  const handleDirectionPick = (side: 'long' | 'short') => {
+    setShowDirectionPopup(false);
+    // SL/TP auto-calc for the chosen direction
+    if (side === 'short') {
+      // Short: SL above entry, TP below entry
+      // Already calculated as long defaults; chart lines will flip on handleSubmit
+    }
+    // Position lines appear automatically via the useEffect below
+  };
 
   useEffect(() => {
     if (currentPrice > 0 && stopLoss > 0 && takeProfit > 0)
@@ -193,11 +211,35 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
         <div className="flex items-center justify-between"><label className="text-[11px] font-medium text-garda-text-secondary">{t('trade.tp_sl')}</label><span className="text-[11px] font-mono-num font-semibold text-garda-pink">{t('trade.risk')}: ${riskAmount.toFixed(2)}</span></div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="garda-input flex items-center gap-1.5 py-2 text-xs cursor-not-allowed opacity-80"><span className="text-[11px] text-garda-cyan font-medium">TP</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /><span className="font-mono-num text-xs text-garda-cyan truncate">{takeProfit > 0 ? formatPrice(takeProfit) : 'Auto'}</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /></div>
-          <div className="garda-input flex items-center gap-1.5 py-2 text-xs cursor-not-allowed opacity-80"><span className="text-[11px] text-garda-pink font-medium">SL</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /><span className="font-mono-num text-xs text-garda-pink truncate">{stopLoss > 0 ? formatPrice(stopLoss) : 'Auto'}</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /></div>
+          <div className="garda-input flex items-center gap-1.5 py-2 text-xs cursor-not-allowed opacity-80"><span className="text-[11px] text-garda-cyan font-medium">TP</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /><span className="font-mono-num text-xs text-garda-cyan truncate">{takeProfit > 0 ? formatPrice(takeProfit) : '...'}</span></div>
+          <div className="garda-input flex items-center gap-1.5 py-2 text-xs cursor-not-allowed opacity-80"><span className="text-[11px] text-garda-pink font-medium">SL</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /><span className="font-mono-num text-xs text-garda-pink truncate">{stopLoss > 0 ? formatPrice(stopLoss) : '...'}</span></div>
         </div>
 
-        <div className="flex gap-1.5">{RR_OPTIONS.map((rr) => (<button key={rr} onClick={() => setRrRatio(rr)} className={cn('flex-1 py-1.5 rounded text-[11px] font-mono-num font-medium border transition-colors', rrRatio === rr ? 'bg-garda-cyan/10 border-garda-cyan text-garda-cyan' : 'border-garda-border text-garda-text-secondary')}>1:{rr}</button>))}<button disabled className="flex-1 py-1.5 rounded text-[11px] font-medium border border-garda-border text-garda-text-muted opacity-50 cursor-not-allowed">Max RR</button></div>
+        {/* RR Ratio selector — default none; first click opens direction popup */}
+        <div className="flex gap-1.5">
+          {RR_OPTIONS.map((rr) => (
+            <button key={rr} onClick={() => handleRrSelect(rr)}
+              className={cn('flex-1 py-1.5 rounded text-[11px] font-mono-num font-medium border transition-colors',
+                rrRatio === rr ? 'bg-garda-cyan/10 border-garda-cyan text-garda-cyan' : 'border-garda-border text-garda-text-secondary')}>
+              1:{rr}
+            </button>
+          ))}
+          <button disabled className="flex-1 py-1.5 rounded text-[11px] font-medium border border-garda-border text-garda-text-muted opacity-50 cursor-not-allowed">Max RR</button>
+        </div>
+
+        {/* Direction popup (Long/Short) — shown after RR ratio is picked */}
+        {showDirectionPopup && (
+          <div className="flex gap-2 animate-slide-up">
+            <button onClick={() => handleDirectionPick('long')}
+              className="flex-1 py-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 bg-garda-cyan text-[#0A0A14]">
+              <TrendingUp className="w-3.5 h-3.5" />LONG — SL ↓ TP ↑
+            </button>
+            <button onClick={() => handleDirectionPick('short')}
+              className="flex-1 py-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 bg-garda-pink text-white">
+              <TrendingDown className="w-3.5 h-3.5" />SHORT — SL ↑ TP ↓
+            </button>
+          </div>
+        )}
 
         <div className="space-y-1.5 pt-0.5"><div className="flex justify-between text-xs"><span className="text-garda-text-muted">{t('trade.available_balance')}</span><span className="font-mono-num font-medium">{formatUSDT(balance)} USDT</span></div><div className="flex justify-between text-xs"><span className="text-garda-text-muted">{t('trade.potential_profit')}</span><span className="font-mono-num font-medium text-garda-cyan">{potentialProfit > 0 ? `+$${potentialProfit.toFixed(2)} (+${((potentialProfit / balance) * 100).toFixed(1)}%)` : '+$0.00 (+0.0%)'}</span></div><div className="flex justify-between text-xs"><span className="text-garda-text-muted">{t('trade.risk_limit')}</span><span className="font-mono-num font-medium">{tradesToday}/{maxTrades} Trades</span></div></div>
 
