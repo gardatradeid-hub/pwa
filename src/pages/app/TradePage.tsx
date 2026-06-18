@@ -294,10 +294,17 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
     },
   ];
 
-  const canTrade = !isLocked && !cooldownUntil && !activeTrade && tradesToday < maxTrades && !isSubmitting;
+  const canTrade =
+    !isLocked &&
+    (cooldown?.isExpired ?? true) &&
+    !activeTrade &&
+    tradesToday < maxTrades &&
+    !isSubmitting &&
+    entryPrice > 0 &&
+    stopLoss > 0;
 
-  const handleSubmit = async () => {
-    if (!canTrade || !position || entryPrice <= 0 || stopLoss <= 0) return;
+  const handleSubmit = async (side: 'long' | 'short') => {
+    if (!position || position.quantity <= 0) return;
 
     setError(null);
     setIsSubmitting(true);
@@ -305,7 +312,7 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
     try {
       const result = await executeTrade({
         symbol: form.symbol,
-        side: form.side,
+        side,
         entryPrice,
         stopLoss,
         rrRatio,
@@ -581,14 +588,14 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
         /* Execute buttons */
         <div className="flex gap-3">
           <button
-            onClick={handleSubmit}
+            onClick={() => handleSubmit('long')}
             disabled={!canTrade}
             className="garda-btn-long flex-1"
           >
             {t('trade.long_buy')}
           </button>
           <button
-            onClick={handleSubmit}
+            onClick={() => handleSubmit('short')}
             disabled={!canTrade}
             className="garda-btn-short flex-1"
           >
