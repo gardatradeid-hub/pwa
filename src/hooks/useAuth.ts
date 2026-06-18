@@ -88,10 +88,13 @@ export function useAuth() {
   };
 
   const signInWithGoogle = useCallback(async () => {
+    // Always redirect to the canonical production URL so Supabase allows
+    // the redirect regardless of which Vercel deploy alias the user came from.
+    const appUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/onboarding/connect`,
+        redirectTo: `${appUrl}/onboarding/connect`,
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
