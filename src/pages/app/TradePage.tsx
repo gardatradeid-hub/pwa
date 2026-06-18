@@ -23,8 +23,75 @@ import type { OHLCVData, TickerData } from '@/types/exchange';
 import {
   ArrowUp, ArrowDown, Clock, AlertCircle, CheckCircle2,
   XCircle, Shield, TrendingUp, TrendingDown, Target, Coins,
-  ChevronDown, Loader2,
+  ChevronDown, Loader2, Info,
 } from 'lucide-react';
+
+// =====================================================
+// TOAST (inline notification)
+// =====================================================
+type ToastType = 'success' | 'error' | 'info';
+
+interface Toast {
+  id: number;
+  type: ToastType;
+  title: string;
+  message: string;
+}
+
+function ToastNotification({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 5_000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+
+  const colors: Record<ToastType, string> = {
+    success: 'border-garda-cyan/40 bg-garda-cyan/10 text-garda-cyan',
+    error: 'border-garda-pink/40 bg-garda-pink/10 text-garda-pink',
+    info: 'border-garda-amber/40 bg-garda-amber/10 text-garda-amber',
+  };
+
+  const icons: Record<ToastType, typeof CheckCircle2> = {
+    success: CheckCircle2,
+    error: AlertCircle,
+    info: Info,
+  };
+
+  const Icon = icons[toast.type];
+
+  return (
+    <div
+      onClick={onDismiss}
+      className={cn(
+        'p-4 rounded-xl border animate-slide-up cursor-pointer transition-opacity hover:opacity-80',
+        colors[toast.type],
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <Icon className="w-5 h-5 shrink-0 mt-0.5" />
+        <div>
+          <p className="font-semibold text-sm">{toast.title}</p>
+          {toast.message && <p className="opacity-80 text-xs mt-1">{toast.message}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useToast() {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const idRef = useRef(0);
+
+  const addToast = useCallback((type: ToastType, title: string, message = '') => {
+    const id = ++idRef.current;
+    setToasts((prev) => [...prev.slice(-4), { id, type, title, message }]);
+  }, []);
+
+  const removeToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  return { toasts, addToast, removeToast };
+}
 
 // =====================================================
 // CANDLESTICK CHART (lightweight-charts — Bybit style)
@@ -250,6 +317,7 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
   const { form, setSymbol, setSide, setEntryPrice, setStopLoss } = useTradeStore();
   const { tradesToday, activeTrade, isLocked, cooldownUntil } = useTradeStore();
   const cooldown = useTimer(cooldownUntil);
+  const { toasts, addToast, removeToast } = useToast();
 
   const [rrRatio, setRrRatio] = useState(2);
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
@@ -309,6 +377,8 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
     setError(null);
     setIsSubmitting(true);
 
+    const sideLabel = side === 'long' ? 'LONG' : 'SHORT';
+
     try {
       const result = await executeTrade({
         symbol: form.symbol,
@@ -319,14 +389,23 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
       });
 
       if (!result.success) {
-        setError(result.error || 'Guardrail checks failed');
+        const msg = result.error || 'Guardrail checks failed';
+        setError(msg);
+        addToast('error', 'Trade Gagal', msg);
         return;
       }
 
       useTradeStore.getState().setActiveTrade(result.trade);
       useTradeStore.getState().setTradesToday(tradesToday + 1, maxTrades);
+      addToast(
+        'success',
+        'Trade Terbuka',
+        `${sideLabel} ${form.symbol} @ ${formatPrice(entryPrice)} · SL: ${formatPrice(stopLoss)} · TP: ${formatPrice(position.takeProfit)}`
+      );
     } catch (e: any) {
-      setError(e.message || 'Gagal eksekusi trade');
+      const msg = e.message || 'Gagal eksekusi trade';
+      setError(msg);
+      addToast('error', 'Error', msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -341,13 +420,20 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
       if (result.success) {
         useTradeStore.getState().setActiveTrade(null);
         useTradeStore.getState().setShowPostTradeModal(true, activeTrade.id);
+        addToast(
+          result.pnl?.isWin ? 'success' : 'info',
+          result.pnl?.isWin ? 'Trade Ditutup — Win' : 'Trade Ditutup — Loss',
+          `PnL: ${result.pnl?.usdt?.toFixed(2) ?? '?'} USDT · ${result.pnl?.r?.toFixed(2) ?? '?'}R`
+        );
         if (result.lockTriggered) {
+          addToast('error', 'Akun Terkunci', `${result.lockTriggered.type === 'consecutive_loss' ? '3 kalah berturut-turut' : 'Batas kerugian harian'}`);
           useTradeStore.getState().setIsLocked(true);
           useTradeStore.getState().setCooldownUntil(result.lockTriggered.unlocksAt);
-          navigate('/app/locked');
+          setTimeout(() => navigate('/app/locked'), 1500);
         }
         if (result.evaluationTriggered) {
-          navigate('/app/evaluation');
+          addToast('info', 'Mode Evaluasi', 'Drawdown 10R tercapai. Review wajib.');
+          setTimeout(() => navigate('/app/evaluation'), 1500);
         }
       } else {
         setError(result.error);
@@ -361,6 +447,15 @@ function OrderPanel({ balance, ticker, maxTrades }: { balance: number; ticker: T
 
   return (
     <div className="space-y-4">
+      {/* Toast notifications */}
+      {toasts.length > 0 && (
+        <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
+          {toasts.map((toast) => (
+            <ToastNotification key={toast.id} toast={toast} onDismiss={() => removeToast(toast.id)} />
+          ))}
+        </div>
+      )}
+
       {/* Symbol picker */}
       <div className="relative">
         <button
