@@ -13,9 +13,10 @@ export function useTheme() {
   }, []);
 
   const set = (t: Theme) => {
+    // useAppStore already persists theme under the 'garda-app' key via
+    // Zustand persist middleware. We just toggle the html.dark class here.
     setTheme(t);
     document.documentElement.classList.toggle('dark', t === 'dark');
-    localStorage.setItem('garda-theme', t);
   };
 
   const toggle = () => {

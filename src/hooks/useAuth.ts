@@ -1,7 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { supabase } from '@/config/supabase';
 import { useUserStore } from '@/store/useUserStore';
-import type { UserProfile } from '@/types/user';
+import { useTradeStore } from '@/store/useTradeStore';
+import { PROFILE_CLIENT_COLUMNS, type UserProfile } from '@/types/user';
 
 export function useAuth() {
   const { profile, isAuthenticated, isLoading, setProfile, setAuthenticated, setLoading, reset } =
@@ -46,16 +47,43 @@ export function useAuth() {
 
   const fetchProfile = async (userId: string) => {
     try {
+      // Explicit columns only — never include api_key_encrypted /
+      // api_secret_encrypted (those columns belong to the server side).
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select(PROFILE_CLIENT_COLUMNS)
         .eq('id', userId)
         .single();
 
       if (error) throw error;
-      setProfile(data as UserProfile);
+      setProfile(data as unknown as UserProfile);
+      // Hydrate active-lock state so ProtectedRoute can redirect locked
+      // users to /app/locked without each page having to re-check.
+      await refreshLockState(userId);
     } catch (error) {
       console.error('Fetch profile failed:', error);
+    }
+  };
+
+  const refreshLockState = async (userId: string) => {
+    try {
+      const nowIso = new Date().toISOString();
+      const { data: locks } = await supabase
+        .from('lock_events')
+        .select('unlocks_at')
+        .eq('user_id', userId)
+        .gt('unlocks_at', nowIso)
+        .order('locked_at', { ascending: false })
+        .limit(1);
+
+      const tradeStore = useTradeStore.getState();
+      if (locks && locks.length > 0) {
+        tradeStore.setIsLocked(true);
+      } else {
+        tradeStore.setIsLocked(false);
+      }
+    } catch (e) {
+      console.warn('refreshLockState failed:', e);
     }
   };
 

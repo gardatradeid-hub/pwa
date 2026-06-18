@@ -21,6 +21,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import ccxt from 'https://esm.sh/ccxt@4';
+import { decryptSecret } from '../_shared/crypto.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -111,10 +112,24 @@ Deno.serve(async (req: Request) => {
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile || !profile.exchange) {
+    if (profileError || !profile || !profile.exchange || !profile.api_key_encrypted || !profile.api_secret_encrypted) {
       return new Response(
         JSON.stringify({ error: 'Exchange not connected' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Decrypt API keys (AES-256-GCM, see ../_shared/crypto.ts)
+    let apiKey: string;
+    let apiSecret: string;
+    try {
+      apiKey = await decryptSecret(profile.api_key_encrypted);
+      apiSecret = await decryptSecret(profile.api_secret_encrypted);
+    } catch (e) {
+      console.error('Failed to decrypt API credentials:', (e as Error).message);
+      return new Response(
+        JSON.stringify({ error: 'Stored credentials cannot be decrypted. Reconnect exchange.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -136,8 +151,8 @@ Deno.serve(async (req: Request) => {
     // --- INITIALIZE EXCHANGE ---
     const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
     const exchange = new ExchangeClass({
-      apiKey: profile.api_key_encrypted,
-      secret: profile.api_secret_encrypted,
+      apiKey,
+      secret: apiSecret,
       enableRateLimit: true,
       options: { defaultType: 'swap' },
     });

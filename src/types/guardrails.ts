@@ -43,7 +43,7 @@ export interface TradingRules {
   daily_loss_limit_r: number;
   total_drawdown_r: number;
   martingale_blocked: boolean;
-  averging_down_blocked: boolean;
+  averaging_down_blocked: boolean;
 }
 
 export interface PhaseConfig {

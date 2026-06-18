@@ -137,7 +137,7 @@ INSERT INTO app_config (key, value) VALUES
   "daily_loss_limit_r": 3,
   "total_drawdown_r": 10,
   "martingale_blocked": true,
-  "averging_down_blocked": true
+  "averaging_down_blocked": true
 }'),
 ('phase_config', '{
   "phases": [

@@ -2,14 +2,21 @@ export type Exchange = 'bybit' | 'binance' | 'okx';
 export type Language = 'id' | 'en';
 export type Theme = 'dark' | 'light';
 
+/**
+ * Client-side view of a user profile.
+ *
+ * NOTE: `api_key_encrypted` / `api_secret_encrypted` are stored on the DB row
+ * but MUST NOT be selected to the client. Only edge functions (running with
+ * the service_role key) read those columns. Keep this interface as the
+ * `safe` projection, and the `PROFILE_CLIENT_COLUMNS` list (below) as the
+ * SQL projection used by `useAuth.fetchProfile`.
+ */
 export interface UserProfile {
   id: string;
   full_name: string | null;
   email: string | null;
   avatar_url: string | null;
   exchange: Exchange | null;
-  api_key_encrypted: string | null;
-  api_secret_encrypted: string | null;
   current_phase: number;
   is_early_adopter: boolean;
   subscription_plan: string;
@@ -22,6 +29,18 @@ export interface UserProfile {
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * Explicit column list for `.select(PROFILE_CLIENT_COLUMNS)` in client code.
+ * Mirrors `UserProfile` 1:1 — never add `api_key_encrypted` or
+ * `api_secret_encrypted` here. If a column is added to UserProfile, add it
+ * here too, and to the DB row.
+ */
+export const PROFILE_CLIENT_COLUMNS =
+  'id, full_name, email, avatar_url, exchange, current_phase, ' +
+  'is_early_adopter, subscription_plan, subscription_expires_at, ' +
+  'onboarding_completed, preferred_lang, preferred_theme, ' +
+  'email_verified, auth_provider, created_at, updated_at';
 
 export interface PhaseInfo {
   phase: number;

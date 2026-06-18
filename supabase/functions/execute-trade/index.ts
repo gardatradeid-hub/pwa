@@ -22,6 +22,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import ccxt from 'https://esm.sh/ccxt@4';
+import { decryptSecret } from '../_shared/crypto.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -103,6 +104,24 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Spec §6: "Manual lot size: Blocked". Reject any attempt to bypass
+    // server-side position sizing by sending quantity/size/leverage in the
+    // request body — these MUST be computed server-side from the 1R risk
+    // model. We reject explicitly rather than silently stripping so the
+    // client learns of the violation.
+    const forbiddenFields = ['quantity', 'qty', 'size', 'amount', 'leverage', 'margin'] as const;
+    const anyBody = body as Record<string, unknown>;
+    for (const f of forbiddenFields) {
+      if (anyBody[f] !== undefined) {
+        return new Response(
+          JSON.stringify({
+            error: `Field "${f}" is not allowed — position size and leverage are server-calculated (manual lot size blocked).`,
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // --- LOAD CONFIG ---
     const { data: configRows, error: configError } = await supabase
       .from('app_config')
@@ -140,10 +159,24 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (!profile.exchange || !profile.api_key_encrypted) {
+    if (!profile.exchange || !profile.api_key_encrypted || !profile.api_secret_encrypted) {
       return new Response(
         JSON.stringify({ error: 'Exchange not connected' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Decrypt API keys once and reuse for both balance probe and order execution.
+    let apiKey: string;
+    let apiSecret: string;
+    try {
+      apiKey = await decryptSecret(profile.api_key_encrypted);
+      apiSecret = await decryptSecret(profile.api_secret_encrypted);
+    } catch (e) {
+      console.error('Failed to decrypt API credentials:', (e as Error).message);
+      return new Response(
+        JSON.stringify({ error: 'Stored credentials cannot be decrypted. Reconnect exchange.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -199,8 +232,8 @@ Deno.serve(async (req: Request) => {
     try {
       const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
       const exchange = new ExchangeClass({
-        apiKey: profile.api_key_encrypted,
-        secret: profile.api_secret_encrypted,
+        apiKey,
+        secret: apiSecret,
         enableRateLimit: true,
         options: { defaultType: 'swap' },
       });
@@ -341,7 +374,11 @@ Deno.serve(async (req: Request) => {
     // 11. Averaging down
     // Check if entry price is worse than existing open position (blocked)
     let averagingOk = true;
-    if (tradingRules.averging_down_blocked && hasOpenPosition) {
+    // Spec uses `averaging_down_blocked`. We accept the legacy `averging_down_blocked`
+    // key too so an in-flight DB without the new migration keeps working.
+    const averagingDownBlocked =
+      tradingRules.averaging_down_blocked ?? tradingRules.averging_down_blocked;
+    if (averagingDownBlocked && hasOpenPosition) {
       const openTrade = activePositions![0];
       if (
         (openTrade.side === 'long' && entryPrice < openTrade.entry_price) ||
@@ -425,8 +462,8 @@ Deno.serve(async (req: Request) => {
     // --- EXECUTE ON EXCHANGE ---
     const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
     const exchange = new ExchangeClass({
-      apiKey: profile.api_key_encrypted,
-      secret: profile.api_secret_encrypted,
+      apiKey,
+      secret: apiSecret,
       enableRateLimit: true,
       options: { defaultType: 'swap' },
     });

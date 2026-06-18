@@ -35,17 +35,22 @@ export default function ConnectExchange() {
     setError(null);
     setIsConnecting(true);
     try {
-      // Store API keys (in production, these would be encrypted via Edge Function)
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          exchange: data.exchange,
-          api_key_encrypted: data.api_key,
-          api_secret_encrypted: data.api_secret,
-        })
-        .eq('id', (await supabase.auth.getUser()).data.user?.id);
+      // Submit plaintext credentials to the connect-exchange edge function.
+      // The function verifies them against the exchange, encrypts with
+      // AES-256-GCM, then stores. Client never touches the encrypted blob.
+      const { data: resp, error: fnError } = await supabase.functions.invoke(
+        'connect-exchange',
+        {
+          body: {
+            exchange: data.exchange,
+            api_key: data.api_key,
+            api_secret: data.api_secret,
+          },
+        }
+      );
 
-      if (updateError) throw updateError;
+      if (fnError) throw new Error(fnError.message);
+      if (resp && resp.error) throw new Error(resp.error);
 
       setSuccess(true);
       setTimeout(() => navigate('/onboarding/rules'), 1000);
