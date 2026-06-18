@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '@/config/supabase';
+import { useUserStore } from '@/store/useUserStore';
 import { DEFAULT_TRADING_RULES, DEFAULT_PHASE_CONFIG } from '@/config/constants';
 import { Shield, Check, AlertTriangle } from 'lucide-react';
 
@@ -36,6 +37,12 @@ export default function AcceptRules() {
         .eq('id', userId);
 
       if (updateError) throw updateError;
+      // Refresh Zustand store so ProtectedRoute sees onboarding_completed=true
+      // immediately, without requiring a page reload.
+      useUserStore.getState().setProfile({
+        ...useUserStore.getState().profile!,
+        onboarding_completed: true,
+      });
       navigate('/app');
     } catch (e: any) {
       setError(e.message || 'Gagal menyimpan');

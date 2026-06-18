@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks/useTheme';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthContext } from '@/components/AuthProvider';
 import { useUserStore } from '@/store/useUserStore';
 import { useAppStore } from '@/store/useAppStore';
 import { formatDate } from '@/lib/formatters';
@@ -10,7 +10,7 @@ import { User, Globe, Moon, Sun, LogOut, Shield, Bell } from 'lucide-react';
 export default function ProfilePage() {
   const { t, i18n } = useTranslation();
   const { isDark, toggleTheme } = useTheme();
-  const { signOut } = useAuth();
+  const { signOut } = useAuthContext();
   const { profile } = useUserStore();
   const { lang, setLang } = useAppStore();
   const phase = useUserStore.getState().getCurrentPhase();
