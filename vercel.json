@@ -38,9 +38,6 @@
     }
   ],
   "env": {
-    "VITE_SUPABASE_URL": "https://zwmfavbdlzrftwhuewuk.supabase.co",
-    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp3bWZhdmJkbHpyZnR3aHVld3VrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MTQzODUsImV4cCI6MjA5NzE5MDM4NX0.SoJjgUzz3DhAqAkYBpYK7EqN2pRu58QcSc5705YPa5k",
-    "VITE_APP_NAME": "Garda",
-    "VITE_APP_URL": "https://garda-i64f02wmj-garda-s-projects.vercel.app"
+    "VITE_APP_URL": "https://garda-alpha.vercel.app"
   }
 }
