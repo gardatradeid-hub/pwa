@@ -50,7 +50,7 @@ const CHART_COLORS = { background: '#0A0A14', text: '#8A8AA0', grid: 'rgba(42, 4
 
 export interface PositionLines { entryPrice: number; stopLoss: number; takeProfit: number; side: 'long' | 'short'; }
 
-interface CandlestickChartProps { ohlcv: OHLCVData[]; ticker: TickerData | null; selectedTimeframe: string; onTimeframeChange: (tf: string) => void; isLoading: boolean; positionLines?: PositionLines | null; }
+interface CandlestickChartProps { ohlcv: OHLCVData[]; ticker: TickerData | null; symbol: string; selectedTimeframe: string; onTimeframeChange: (tf: string) => void; isLoading: boolean; positionLines?: PositionLines | null; }
 
 function CandlestickChart({ ohlcv, ticker, selectedTimeframe, onTimeframeChange, isLoading, positionLines }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null); const chartRef = useRef<IChartApi | null>(null); const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null); const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
@@ -108,14 +108,14 @@ function getCoinUnit(sym: string) { return sym.split('/')[0] || 'BTC'; }
 interface OrderPanelProps {
   balance: number; ticker: TickerData | null; maxTrades: number; tradesToday: number;
   activeTrade: any; isLocked: boolean; cooldownUntil: string | null;
+  symbol: string; onSymbolChange: (sym: string) => void;
   onExecute: (side: 'long' | 'short', data: any) => Promise<void>;
   onClose: () => Promise<void>; isSubmitting: boolean; error: string | null;
   onPositionLinesChange: (lines: PositionLines | null) => void;
 }
 
-function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLocked, cooldownUntil, onExecute, onClose, isSubmitting, error, onPositionLinesChange }: OrderPanelProps) {
+function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLocked, cooldownUntil, symbol, onSymbolChange, onExecute, onClose, isSubmitting, error, onPositionLinesChange }: OrderPanelProps) {
   const { t } = useTranslation(); const cooldown = useTimer(cooldownUntil);
-  const [symbol, setSymbol] = useState('BTC/USDT');
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [rrRatio, setRrRatio] = useState(2);
   const [qtyPct, setQtyPct] = useState(100);
@@ -124,23 +124,14 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
   const coinUnit = getCoinUnit(symbol);
   const currentPrice = ticker?.last || 0;
 
-  // ---- Auto-calc SL (1R based) ----
-  // riskAmount = balance × qtyPct% × 1%
   const riskAmount = balance * (qtyPct / 100) * 0.01;
-  // qty = (balance × qtyPct%) / currentPrice
   const marginUsed = balance * (qtyPct / 100);
   const quantity = currentPrice > 0 ? marginUsed / currentPrice : 0;
-  // slDistance = riskAmount / qty
   const slDistance = quantity > 0 ? riskAmount / quantity : 0;
-  // SL auto-calc (default long direction: SL below entry)
   const stopLoss = currentPrice > 0 && slDistance > 0 ? currentPrice - slDistance : 0;
-  // TP auto-calc from SL distance × RR ratio
   const takeProfit = currentPrice > 0 && slDistance > 0 ? currentPrice + slDistance * rrRatio : 0;
   const potentialProfit = riskAmount * rrRatio;
 
-  // When symbol changes, all price fields naturally re-derive from the new ticker — no explicit reset needed.
-
-  // Push SL/TP lines to chart (no entry line yet since position not open)
   useEffect(() => {
     if (currentPrice > 0 && stopLoss > 0 && takeProfit > 0)
       onPositionLinesChange({ entryPrice: 0, stopLoss, takeProfit, side: 'long' });
@@ -150,13 +141,11 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
   const canTrade = !isLocked && (cooldown?.isExpired ?? true) && !activeTrade && tradesToday < maxTrades && !isSubmitting && currentPrice > 0 && stopLoss > 0 && quantity > 0;
 
   const handleSubmit = (side: 'long' | 'short') => {
-    // Flip SL/TP for short side
     const adjSL = side === 'short' ? currentPrice + slDistance : currentPrice - slDistance;
     const adjTP = side === 'short' ? currentPrice - slDistance * rrRatio : currentPrice + slDistance * rrRatio;
     onExecute(side, { symbol, entryPrice: currentPrice, stopLoss: adjSL, takeProfit: adjTP, rrRatio, quantity, riskAmount, margin: marginUsed });
   };
 
-  // Live P&L for open position
   const livePnl = useMemo(() => {
     if (!activeTrade || !ticker?.last) return null;
     const c = ticker.last, e = activeTrade.entry_price, q = activeTrade.quantity, s = activeTrade.side;
@@ -167,26 +156,21 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
 
   return (
     <div className="space-y-2.5 text-[13px]">
-      {/* Active trade card */}
       {activeTrade && (<div className="garda-card p-3 space-y-2.5 border-garda-cyan/30">
         <div className="flex items-center justify-between"><div className="flex items-center gap-1.5">{activeTrade.side === 'long' ? <TrendingUp className="w-3.5 h-3.5 text-garda-cyan" /> : <TrendingDown className="w-3.5 h-3.5 text-garda-pink" />}<div><p className="font-bold font-mono-num text-sm">{activeTrade.symbol}</p><p className="text-[11px] text-garda-text-muted">{activeTrade.side.toUpperCase()}</p></div></div><div className="text-right"><p className="text-xs font-mono-num text-garda-text-secondary">Entry: {formatPrice(activeTrade.entry_price)}</p><p className="text-[11px] font-mono-num text-garda-text-muted">SL: {formatPrice(activeTrade.stop_loss)} &nbsp; TP: {formatPrice(activeTrade.take_profit)}</p></div></div>
         {livePnl && (<div className={cn('flex items-center justify-between p-2.5 rounded-lg', livePnl.isProfit ? 'bg-garda-cyan/10' : 'bg-garda-pink/10')}><span className="text-xs text-garda-text-secondary">P&amp;L (live)</span><div className="text-right"><p className={cn('font-mono-num font-bold text-sm', livePnl.isProfit ? 'text-garda-cyan' : 'text-garda-pink')}>{livePnl.isProfit ? '+' : ''}{livePnl.usdt.toFixed(2)} USDT</p><p className={cn('font-mono-num text-[11px]', livePnl.isProfit ? 'text-garda-cyan' : 'text-garda-pink')}>{livePnl.isProfit ? '+' : ''}{livePnl.percent.toFixed(2)}% · {livePnl.isProfit ? '+' : ''}{livePnl.r.toFixed(2)}R</p></div></div>)}
         <button onClick={onClose} disabled={isSubmitting} className="w-full py-2.5 rounded-lg bg-garda-pink/10 border border-garda-pink/30 text-garda-pink font-semibold text-xs hover:bg-garda-pink/20 transition-colors disabled:opacity-50">{isSubmitting ? t('common.loading') : t('active_trade.close_trade')}</button>
       </div>)}
 
-      {/* Order form */}
       {!activeTrade && (<>
-        {/* Symbol picker */}
         <div className="relative"><button onClick={() => setShowSymbolPicker(!showSymbolPicker)} className="garda-input w-full flex items-center justify-between text-left py-2 text-xs"><span className="font-mono-num font-medium">{symbol}</span><ChevronDown className={cn('w-3.5 h-3.5 text-garda-text-muted transition-transform', showSymbolPicker && 'rotate-180')} /></button>
-          {showSymbolPicker && (<div className="absolute top-full left-0 right-0 mt-1 bg-garda-card border border-garda-border rounded-lg z-10 shadow-lg">{SUPPORTED_SYMBOLS.map((sym) => (<button key={sym} onClick={() => { setSymbol(sym); setShowSymbolPicker(false); }} className={cn('w-full px-3 py-2 text-left font-mono-num text-xs hover:bg-garda-surface transition-colors', sym === symbol ? 'text-garda-cyan' : 'text-garda-text-secondary')}>{sym}</button>))}</div>)}
+          {showSymbolPicker && (<div className="absolute top-full left-0 right-0 mt-1 bg-garda-card border border-garda-border rounded-lg z-10 shadow-lg">{SUPPORTED_SYMBOLS.map((sym) => (<button key={sym} onClick={() => { onSymbolChange(sym); setShowSymbolPicker(false); }} className={cn('w-full px-3 py-2 text-left font-mono-num text-xs hover:bg-garda-surface transition-colors', sym === symbol ? 'text-garda-cyan' : 'text-garda-text-secondary')}>{sym}</button>))}</div>)}
         </div>
 
-        {/* Market/Limit toggle */}
         <div className="flex bg-garda-input rounded-md p-0.5">
           {(['market', 'limit'] as const).map((ot) => (<button key={ot} onClick={() => setOrderType(ot)} className={cn('flex-1 py-1.5 text-[11px] font-medium rounded transition-colors capitalize', orderType === ot ? 'bg-garda-cyan text-[#0A0A14]' : 'text-garda-text-secondary')}>{t(`trade.${ot}`)}</button>))}
         </div>
 
-        {/* Order Price (market = live, limit = manual input) */}
         <div>
           <div className="flex justify-between mb-1"><label className="text-[11px] font-medium text-garda-text-secondary">{t('trade.order_price')}</label><span className="text-[11px] text-garda-text-muted font-mono-num">{t('trade.last_price')}: {ticker ? formatPrice(ticker.last) : '...'}</span></div>
           {orderType === 'market' ? (
@@ -199,28 +183,22 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
           )}
         </div>
 
-        {/* Qty + Margin (both read-only, auto-calc) */}
         <div className="grid grid-cols-2 gap-2">
           <div><label className="block text-[11px] font-medium text-garda-text-secondary mb-1">{t('trade.qty')}</label><div className="garda-input w-full flex items-center justify-between py-2 text-xs cursor-not-allowed opacity-70"><span className="font-mono-num font-medium">{quantity > 0 ? quantity.toFixed(4) : '0.00'}</span><span className="text-[11px] text-garda-text-muted">{coinUnit}</span></div></div>
           <div><label className="block text-[11px] font-medium text-garda-text-secondary mb-1">{t('trade.margin')}</label><div className="garda-input w-full flex items-center justify-between py-2 text-xs cursor-not-allowed opacity-70"><span className="font-mono-num font-medium">{marginUsed > 0 ? formatPrice(marginUsed) : '0.00'}</span><span className="text-[11px] text-garda-text-muted">USDT</span></div></div>
         </div>
 
-        {/* Qty % buttons (changes margin usage, SL/TP auto-recalc) */}
         <div className="flex gap-1.5">{QTY_PERCENTS.map((pct) => (<button key={pct} onClick={() => setQtyPct(pct)} className={cn('flex-1 py-1 rounded text-[11px] font-medium border transition-colors', qtyPct === pct ? 'bg-garda-cyan/10 border-garda-cyan text-garda-cyan' : 'border-garda-border text-garda-text-secondary hover:border-garda-cyan/50')}>{pct}%</button>))}</div>
 
-        {/* TP/SL header */}
         <div className="flex items-center justify-between"><label className="text-[11px] font-medium text-garda-text-secondary">{t('trade.tp_sl')}</label><span className="text-[11px] font-mono-num font-semibold text-garda-pink">{t('trade.risk')}: ${riskAmount.toFixed(2)}</span></div>
 
-        {/* TP + SL — both read-only, auto-calculated */}
         <div className="grid grid-cols-2 gap-2">
           <div className="garda-input flex items-center gap-1.5 py-2 text-xs cursor-not-allowed opacity-80"><span className="text-[11px] text-garda-cyan font-medium">TP</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /><span className="font-mono-num text-xs text-garda-cyan truncate">{takeProfit > 0 ? formatPrice(takeProfit) : 'Auto'}</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /></div>
           <div className="garda-input flex items-center gap-1.5 py-2 text-xs cursor-not-allowed opacity-80"><span className="text-[11px] text-garda-pink font-medium">SL</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /><span className="font-mono-num text-xs text-garda-pink truncate">{stopLoss > 0 ? formatPrice(stopLoss) : 'Auto'}</span><Lock className="w-3 h-3 text-garda-text-muted shrink-0" /></div>
         </div>
 
-        {/* RR Ratio selector */}
         <div className="flex gap-1.5">{RR_OPTIONS.map((rr) => (<button key={rr} onClick={() => setRrRatio(rr)} className={cn('flex-1 py-1.5 rounded text-[11px] font-mono-num font-medium border transition-colors', rrRatio === rr ? 'bg-garda-cyan/10 border-garda-cyan text-garda-cyan' : 'border-garda-border text-garda-text-secondary')}>1:{rr}</button>))}<button disabled className="flex-1 py-1.5 rounded text-[11px] font-medium border border-garda-border text-garda-text-muted opacity-50 cursor-not-allowed">Max RR</button></div>
 
-        {/* Info rows */}
         <div className="space-y-1.5 pt-0.5"><div className="flex justify-between text-xs"><span className="text-garda-text-muted">{t('trade.available_balance')}</span><span className="font-mono-num font-medium">{formatUSDT(balance)} USDT</span></div><div className="flex justify-between text-xs"><span className="text-garda-text-muted">{t('trade.potential_profit')}</span><span className="font-mono-num font-medium text-garda-cyan">{potentialProfit > 0 ? `+$${potentialProfit.toFixed(2)} (+${((potentialProfit / balance) * 100).toFixed(1)}%)` : '+$0.00 (+0.0%)'}</span></div><div className="flex justify-between text-xs"><span className="text-garda-text-muted">{t('trade.risk_limit')}</span><span className="font-mono-num font-medium">{tradesToday}/{maxTrades} Trades</span></div></div>
 
         {error && (<div className="flex items-center gap-1.5 p-2.5 rounded-lg bg-garda-pink/10 border border-garda-pink/20 text-garda-pink text-[11px]"><AlertCircle className="w-3.5 h-3.5 shrink-0" />{error}</div>)}
@@ -245,28 +223,26 @@ export default function TradePage() {
   const [tf, setTf] = useState('15m');
   const [ohlcv, setOhlcv] = useState<OHLCVData[]>([]);
   const [ticker, setTicker] = useState<TickerData | null>(null);
+  const [symbol, setSymbol] = useState('BTC/USDT');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [positionLines, setPositionLines] = useState<PositionLines | null>(null);
-  const symbol = tradeStore.form.symbol || 'BTC/USDT';
 
-  // ---- Pause polling when tab hidden ----
   const tabVisibleRef = useRef(true);
   useEffect(() => { const h = () => { tabVisibleRef.current = !document.hidden; }; document.addEventListener('visibilitychange', h); return () => document.removeEventListener('visibilitychange', h); }, []);
 
-  // ---- Fetch OHLCV + ticker ----
   const fetchMarketData = useCallback(async () => {
     try {
       const [tickerData, ohlcvData] = await Promise.all([fetchTicker(symbol), fetchOHLCV(symbol, tf, 100)]);
       if (tickerData) setTicker(tickerData);
       if (ohlcvData.length > 0) setOhlcv(ohlcvData);
-    } catch (_) { /* ignore */ } finally { setIsLoading(false); }
+    } catch (_) { } finally { setIsLoading(false); }
   }, [symbol, tf]);
 
   // Re-fetch on symbol or tf change
   useEffect(() => { setIsLoading(true); fetchMarketData(); }, [symbol, tf]);
 
-  // ---- Poll ticker + OHLCV (auto-refresh) ----
+  // Poll ticker every 5s
   useEffect(() => {
     let running = true;
     const poll = async () => { if (!running) return; if (tabVisibleRef.current) { try { const td = await fetchTicker(symbol); if (running && td) setTicker(td); } catch (_) { } } setTimeout(poll, TICKER_POLL_MS); };
@@ -285,7 +261,7 @@ export default function TradePage() {
   useEffect(() => { if (tradeStore.isLocked) navigate('/app/locked'); }, [tradeStore.isLocked]);
   useEffect(() => { if (tradeStore.activeTrade) setPositionLines({ entryPrice: tradeStore.activeTrade.entry_price, stopLoss: tradeStore.activeTrade.stop_loss, takeProfit: tradeStore.activeTrade.take_profit, side: tradeStore.activeTrade.side }); }, [tradeStore.activeTrade]);
 
-  const handleAuthError = useCallback((msg: string) => { if (msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('jwt') || msg.toLowerCase().includes('expired') || msg.toLowerCase().includes('token')) { addToast('error', 'Sesi Habis', 'Silakan login kembali.'); setTimeout(() => { useUserStore.getState().reset(); navigate('/login'); }, 1500); return true; } return false; }, [navigate, addToast]);
+  const handleAuthError = useCallback((msg: string) => { if (/unauthorized|jwt|expired|token/i.test(msg)) { addToast('error', 'Sesi Habis', 'Silakan login kembali.'); setTimeout(() => { useUserStore.getState().reset(); navigate('/login'); }, 1500); return true; } return false; }, [navigate, addToast]);
 
   const handleExecute = async (side: 'long' | 'short', data: any) => { setError(null); setIsSubmitting(true); try { const result = await executeTrade({ ...data, side }); if (!result.success) { if (handleAuthError(result.error || '')) return; setError(result.error || 'Guardrail checks failed'); addToast('error', 'Trade Gagal', result.error || ''); return; } tradeStore.setActiveTrade(result.trade); tradeStore.setTradesToday(tradeStore.tradesToday + 1, phase.max_trades); addToast('success', 'Trade Terbuka', `${side.toUpperCase()} ${data.symbol} @ ${formatPrice(data.entryPrice)}`); } catch (e: any) { if (!handleAuthError(e.message || '')) { setError(e.message); addToast('error', 'Error', e.message); } } finally { setIsSubmitting(false); } };
 
@@ -295,8 +271,8 @@ export default function TradePage() {
     <div className="px-4 py-4 space-y-3 pb-24">
       {toasts.length > 0 && (<div className="fixed top-4 right-4 z-50 space-y-1.5 max-w-[280px]">{toasts.map((toast) => <ToastNotification key={toast.id} toast={toast} onDismiss={() => removeToast(toast.id)} />)}</div>)}
       <div className="flex items-center justify-between"><h1 className="text-lg font-bold">{t('nav.trade')}</h1><div className="flex items-center gap-1.5"><Coins className="w-3.5 h-3.5 text-garda-text-muted" /><span className="text-xs font-mono-num text-garda-text-secondary">{balance !== null ? formatUSDT(balance) : '...'} USDT</span></div></div>
-      <CandlestickChart ohlcv={ohlcv} ticker={ticker} selectedTimeframe={tf} onTimeframeChange={setTf} isLoading={isLoading} positionLines={positionLines} />
-      <OrderPanel balance={balance || 1000} ticker={ticker} maxTrades={phase.max_trades} tradesToday={tradeStore.tradesToday} activeTrade={tradeStore.activeTrade} isLocked={tradeStore.isLocked} cooldownUntil={tradeStore.cooldownUntil} onExecute={handleExecute} onClose={handleClose} isSubmitting={isSubmitting} error={error} onPositionLinesChange={setPositionLines} />
+      <CandlestickChart ohlcv={ohlcv} ticker={ticker} symbol={symbol} selectedTimeframe={tf} onTimeframeChange={setTf} isLoading={isLoading} positionLines={positionLines} />
+      <OrderPanel balance={balance || 1000} ticker={ticker} maxTrades={phase.max_trades} tradesToday={tradeStore.tradesToday} activeTrade={tradeStore.activeTrade} isLocked={tradeStore.isLocked} cooldownUntil={tradeStore.cooldownUntil} symbol={symbol} onSymbolChange={setSymbol} onExecute={handleExecute} onClose={handleClose} isSubmitting={isSubmitting} error={error} onPositionLinesChange={setPositionLines} />
     </div>
   );
 }
