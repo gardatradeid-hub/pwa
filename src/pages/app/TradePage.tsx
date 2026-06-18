@@ -121,6 +121,7 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
   const [qtyPct, setQtyPct] = useState(100);
   const [showSymbolPicker, setShowSymbolPicker] = useState(false);
   const [showDirectionPopup, setShowDirectionPopup] = useState(false);
+  const [direction, setDirection] = useState<'long' | 'short' | null>(null);
 
   const coinUnit = getCoinUnit(symbol);
   const currentPrice = ticker?.last || 0;
@@ -130,38 +131,34 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
   const quantity = currentPrice > 0 ? marginUsed / currentPrice : 0;
   const slDistance = quantity > 0 ? riskAmount / quantity : 0;
   // SL + TP: shown only after user picks direction + RR ratio
-  const direction = rrRatio > 0 ? (showDirectionPopup ? null : (slDistance > 0 ? 'long' : null)) : null;
-  const stopLoss = currentPrice > 0 && slDistance > 0 && rrRatio > 0 ? currentPrice - slDistance : 0;
-  const takeProfit = currentPrice > 0 && slDistance > 0 && rrRatio > 0 ? currentPrice + slDistance * rrRatio : 0;
+  const stopLoss = currentPrice > 0 && slDistance > 0 && rrRatio > 0 && direction
+    ? (direction === 'long' ? currentPrice - slDistance : currentPrice + slDistance) : 0;
+  const takeProfit = currentPrice > 0 && slDistance > 0 && rrRatio > 0 && direction
+    ? (direction === 'long' ? currentPrice + slDistance * rrRatio : currentPrice - slDistance * rrRatio) : 0;
   const potentialProfit = rrRatio > 0 ? riskAmount * rrRatio : 0;
 
   const handleRrSelect = (rr: number) => {
     setRrRatio(rr);
+    setDirection(null);
     setShowDirectionPopup(true);
   };
 
   const handleDirectionPick = (side: 'long' | 'short') => {
+    setDirection(side);
     setShowDirectionPopup(false);
-    // SL/TP auto-calc for the chosen direction
-    if (side === 'short') {
-      // Short: SL above entry, TP below entry
-      // Already calculated as long defaults; chart lines will flip on handleSubmit
-    }
-    // Position lines appear automatically via the useEffect below
   };
 
   useEffect(() => {
-    if (currentPrice > 0 && stopLoss > 0 && takeProfit > 0)
-      onPositionLinesChange({ entryPrice: 0, stopLoss, takeProfit, side: 'long' });
+    if (currentPrice > 0 && stopLoss > 0 && takeProfit > 0 && direction)
+      onPositionLinesChange({ entryPrice: 0, stopLoss, takeProfit, side: direction });
     else onPositionLinesChange(null);
-  }, [currentPrice, stopLoss, takeProfit]);
+  }, [currentPrice, stopLoss, takeProfit, direction]);
 
-  const canTrade = !isLocked && (cooldown?.isExpired ?? true) && !activeTrade && tradesToday < maxTrades && !isSubmitting && currentPrice > 0 && stopLoss > 0 && quantity > 0;
+  const canTrade = !isLocked && (cooldown?.isExpired ?? true) && !activeTrade && tradesToday < maxTrades && !isSubmitting && direction && currentPrice > 0 && stopLoss > 0 && quantity > 0;
 
   const handleSubmit = (side: 'long' | 'short') => {
-    const adjSL = side === 'short' ? currentPrice + slDistance : currentPrice - slDistance;
-    const adjTP = side === 'short' ? currentPrice - slDistance * rrRatio : currentPrice + slDistance * rrRatio;
-    onExecute(side, { symbol, entryPrice: currentPrice, stopLoss: adjSL, takeProfit: adjTP, rrRatio, quantity, riskAmount, margin: marginUsed });
+    // Already calc'd with the correct direction — pass through
+    onExecute(side, { symbol, entryPrice: currentPrice, stopLoss, takeProfit, rrRatio, quantity, riskAmount, margin: marginUsed });
   };
 
   const livePnl = useMemo(() => {
@@ -310,7 +307,16 @@ export default function TradePage() {
   const handleClose = async () => { if (!tradeStore.activeTrade) return; setIsSubmitting(true); setError(null); try { const result = await closeTrade(tradeStore.activeTrade.id); if (result.success) { tradeStore.setActiveTrade(null); setPositionLines(null); tradeStore.setShowPostTradeModal(true, tradeStore.activeTrade.id); addToast(result.pnl?.isWin ? 'success' : 'info', result.pnl?.isWin ? 'Trade Ditutup — Win' : 'Trade Ditutup — Loss', `PnL: ${result.pnl?.usdt?.toFixed(2) ?? '?'} USDT · ${result.pnl?.r?.toFixed(2) ?? '?'}R`); if (result.lockTriggered) { tradeStore.setIsLocked(true); setTimeout(() => navigate('/app/locked'), 1500); } if (result.evaluationTriggered) { setTimeout(() => navigate('/app/evaluation'), 1500); } } else { setError(result.error); } } catch (e: any) { if (!handleAuthError(e.message || '')) setError(e.message); } finally { setIsSubmitting(false); } };
 
   return (
-    <div className="px-4 py-4 space-y-3 pb-24">
+    <div className="px-4 py-4 space-y-3 pb-24 relative">
+      {isSubmitting && (
+        <div className="fixed inset-0 z-50 bg-garda-bg/80 flex items-center justify-center">
+          <div className="garda-card p-6 text-center space-y-3">
+            <Loader2 className="w-8 h-8 text-garda-cyan mx-auto animate-spin" />
+            <p className="text-sm font-semibold text-garda-text">Memproses Trade...</p>
+            <p className="text-[11px] text-garda-text-muted">Mengirim order ke exchange</p>
+          </div>
+        </div>
+      )}
       {toasts.length > 0 && (<div className="fixed top-4 right-4 z-50 space-y-1.5 max-w-[280px]">{toasts.map((toast) => <ToastNotification key={toast.id} toast={toast} onDismiss={() => removeToast(toast.id)} />)}</div>)}
       <div className="flex items-center justify-between"><h1 className="text-lg font-bold">{t('nav.trade')}</h1><div className="flex items-center gap-1.5"><Coins className="w-3.5 h-3.5 text-garda-text-muted" /><span className="text-xs font-mono-num text-garda-text-secondary">{balance !== null ? formatUSDT(balance) : '...'} USDT</span></div></div>
       <CandlestickChart ohlcv={ohlcv} ticker={ticker} symbol={symbol} selectedTimeframe={tf} onTimeframeChange={setTf} isLoading={isLoading} positionLines={positionLines} />
