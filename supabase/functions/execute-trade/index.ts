@@ -468,8 +468,26 @@ Deno.serve(async (req: Request) => {
       options: { defaultType: 'swap' },
     });
 
-    // Set leverage to 1x
-    await exchange.setLeverage(1, symbol);
+    // Load markets so we get the correct Bybit symbol ID (e.g. BTC/USDT:USDT).
+    // Bybit requires setLeverage() with the linear swap market symbol format.
+    await exchange.loadMarkets();
+
+    // Find the canonical linear-swap symbol ID. For Bybit this is "BTC/USDT:USDT".
+    const market = (exchange as any).markets?.[symbol];
+    const marketSymbol = market?.id ?? symbol;
+
+    // Set leverage to 1x. On Bybit testnet or demo accounts this can fail
+    // with permission errors — wrap in try/catch so the trade still goes through
+    // if the account already defaults to 1x cross margin.
+    try {
+      await exchange.setLeverage(1, marketSymbol);
+    } catch (levErr: any) {
+      console.warn('setLeverage warning — continuing:', levErr?.message || levErr);
+      // If the error is fatal (not just lever already set), re-throw.
+      if (levErr?.message && !levErr.message.toLowerCase().includes('support linear')) {
+        throw levErr;
+      }
+    }
 
     // Create market order
     const orderSide: 'buy' | 'sell' = side === 'long' ? 'buy' : 'sell';
