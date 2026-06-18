@@ -36,6 +36,7 @@ export function useAuth() {
       if (session) {
         setAuthenticated(true);
         await fetchProfile(session.user.id);
+        setLoading(false);
       } else {
         reset();
       }
