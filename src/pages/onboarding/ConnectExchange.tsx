@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { supabase } from '@/config/supabase';
 import { EXCHANGES, EXCHANGE_LIST, type Exchange } from '@/types/exchange';
+import { formatEdgeError } from '@/lib/error-translator';
 import { CheckCircle2, AlertCircle, Shield, ArrowRight, Search } from 'lucide-react';
 
 const connectSchema = z.object({
@@ -45,12 +46,12 @@ export default function ConnectExchange() {
         'connect-exchange',
         { body: { exchange: data.exchange, api_key: data.api_key, api_secret: data.api_secret } },
       );
-      if (fnError) throw new Error(fnError.message);
+      if (fnError) throw new Error(formatEdgeError(fnError));
       if (resp && resp.error) throw new Error(resp.error);
       setSuccess(true);
       setTimeout(() => navigate('/onboarding/rules'), 1000);
     } catch (e: any) {
-      setError(e.message || 'Gagal menghubungkan exchange');
+      setError(formatEdgeError(e));
     } finally {
       setIsConnecting(false);
     }
