@@ -29,10 +29,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const EXCHANGE_CLASSES: Record<string, typeof ccxt.bybit> = {
-  bybit: ccxt.bybit,
-  binance: ccxt.binance,
-  okx: ccxt.okx,
+const EXCHANGE_CLASSES: Record<string, any> = {
+  binance: ccxt.binance, bingx: ccxt.bingx, bitfinex: ccxt.bitfinex,
+  bitget: ccxt.bitget, bitmex: ccxt.bitmex, bybit: ccxt.bybit,
+  coinex: ccxt.coinex, deribit: ccxt.deribit, gateio: ccxt.gateio,
+  huobi: ccxt.huobi, kraken: ccxt.kraken, kucoin: ccxt.kucoin,
+  mexc: ccxt.mexc, okx: ccxt.okx, phemex: ccxt.phemex,
+  whitebit: ccxt.whitebit, woox: ccxt.woox,
 };
 
 interface CloseTradeRequest {
