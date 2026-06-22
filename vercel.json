@@ -2,38 +2,10 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "cleanUrls": true,
+  "cleanUrls": false,
   "rewrites": [
     {
-      "source": "/(assets|icons|exchanges|locales)/configs/(.*)",
-      "destination": "/$1/configs/$2"
-    },
-    {
-      "source": "/(assets|icons|exchanges|locales)/(.*)",
-      "destination": "/$1/$2"
-    },
-    {
-      "source": "/manifest.webmanifest",
-      "destination": "/manifest.webmanifest"
-    },
-    {
-      "source": "/registerSW.js",
-      "destination": "/registerSW.js"
-    },
-    {
-      "source": "/sw.js",
-      "destination": "/sw.js"
-    },
-    {
-      "source": "/workbox-(.*)",
-      "destination": "/workbox-$1"
-    },
-    {
-      "source": "/favicon.svg",
-      "destination": "/favicon.svg"
-    },
-    {
-      "source": "/((?!api).*)" ,
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
