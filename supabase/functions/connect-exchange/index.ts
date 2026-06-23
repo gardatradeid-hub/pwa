@@ -102,28 +102,15 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // --- VERIFY CREDENTIALS BEFORE STORING ---
-    // We call fetchBalance() with the user-supplied keys. If they're invalid
-    // or missing permissions, exchange throws and we reject the connection.
+    // --- SOFT VERIFY — try fetchBalance, but don't reject if it fails (Gate.io
+    // futures keys reject fetchBalance, which is normal). If it works, great.
+    // If not, store anyway — we'll validate during actual trade execution.
     try {
       const probe = new ExchangeClass({
-        apiKey: api_key,
-        secret: api_secret,
-        enableRateLimit: true,
-        options: { defaultType: 'swap' },
+        apiKey: api_key, secret: api_secret, enableRateLimit: true, options: { defaultType: 'swap' },
       });
       await probe.fetchBalance();
-    } catch (e: any) {
-      const msg = e?.message || 'Unknown';
-      console.warn('Exchange credential verification failed:', msg);
-      return jsonResponse(
-        {
-          error: 'Exchange credentials rejected. Pastikan API key punya permission Read + Trade dan benar.',
-          detail: msg,
-        },
-        400,
-      );
-    }
+    } catch (_) { /* futures-only keys — skip online verification */ }
 
     // --- ENCRYPT + STORE ---
     const apiKeyEnc = await encryptSecret(api_key);

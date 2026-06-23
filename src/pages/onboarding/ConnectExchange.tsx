@@ -146,6 +146,23 @@ export default function ConnectExchange() {
             </div>
           </div>
 
+          {/* Permission guide for selected exchange */}
+          {selectedInfo && selectedInfo.requiredPermission && (
+            <div className="p-3 rounded-lg bg-garda-amber/5 border border-garda-amber/20">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-garda-amber shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-medium text-garda-amber">Permission yang diperlukan di {selectedInfo.name}:</p>
+                  <p className="text-xs text-garda-text-muted mt-1">{selectedInfo.requiredPermission}</p>
+                  <a href={selectedInfo.apiDocUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-garda-cyan hover:underline inline-flex items-center gap-1 mt-1.5">
+                    Cara buat API key ↗
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* API Key */}
           <div>
             <label className="block text-sm font-medium text-garda-text-secondary mb-1.5">{t('onboarding.api_key')}</label>

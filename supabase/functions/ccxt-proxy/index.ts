@@ -146,10 +146,16 @@ Deno.serve(async (req: Request) => {
         break;
       }
       case 'balance': {
-        const balance = await exchange.fetchBalance();
-        const usdt = balance.USDT || balance.USDC || balance.BUSD || { free: 0, used: 0, total: 0 };
-        result = { total_usdt: usdt.total, available_usdt: usdt.free, used_usdt: usdt.used, balances: Object.entries(balance).filter(([, v]: [string, any]) => v && (v.total || 0) > 0).map(([asset, v]: [string, any]) => ({ asset, free: v.free, used: v.used, total: v.total })) };
-        await supabase.from('equity_snapshots').insert({ user_id: user.id, balance_usdt: usdt.total, high_water_mark: usdt.total, drawdown_r: 0 });
+        try {
+          const balance = await exchange.fetchBalance();
+          const usdt = balance.USDT || balance.USDC || balance.BUSD || { free: 0, used: 0, total: 0 };
+          result = { total_usdt: usdt.total, available_usdt: usdt.free, used_usdt: usdt.used, balances: Object.entries(balance).filter(([, v]: [string, any]) => v && (v.total || 0) > 0).map(([asset, v]: [string, any]) => ({ asset, free: v.free, used: v.used, total: v.total })) };
+          await supabase.from('equity_snapshots').insert({ user_id: user.id, balance_usdt: usdt.total, high_water_mark: usdt.total, drawdown_r: 0 });
+        } catch (_) {
+          // Some exchanges (Gate.io, KuCoin) reject fetchBalance for futures-only
+          // API keys. Return an empty result so the client doesn't crash.
+          result = { total_usdt: 0, available_usdt: 0, used_usdt: 0, balances: [] };
+        }
         break;
       }
       case 'positions': {

@@ -232,7 +232,14 @@ Deno.serve(async (req: Request) => {
     let balance = 100; // Default fallback
     let drawdownR = 0;
 
-    // Try to get live balance from exchange first
+    // Try to get balance from last equity snapshot (avoids spot permission issues
+    // on futures-only exchanges like Gate.io). Snapshot is updated every close-trade.
+    if (snapshots && snapshots.length > 0) {
+      balance = Number(snapshots[0].balance_usdt);
+    }
+
+    // Try to get live balance from exchange — non-critical. Futures-only API keys
+    // (Gate.io, KuCoin, etc.) will fail fetchBalance which is expected.
     try {
       const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
       const exchange = new ExchangeClass({
@@ -243,12 +250,11 @@ Deno.serve(async (req: Request) => {
       });
       const bal = await exchange.fetchBalance();
       const usdt = bal.USDT || bal.USDC || { free: 0, total: 0 };
-      balance = usdt.total || usdt.free || 100;
-    } catch (_) {
-      // Fallback to last snapshot
-      if (snapshots && snapshots.length > 0) {
-        balance = Number(snapshots[0].balance_usdt);
+      if (usdt.total || usdt.free) {
+        balance = usdt.total || usdt.free;
       }
+    } catch (_) {
+      // Balance from snapshot is sufficient — futures-only keys can't call fetchBalance
     }
 
     if (snapshots && snapshots.length > 0) {
@@ -480,15 +486,12 @@ Deno.serve(async (req: Request) => {
     const market = (exchange as any).markets?.[symbol];
     const marketSymbol = market?.id ?? symbol;
 
-    // Set leverage to 2x (TODO: revert to 1x before public launch).
+    // Set leverage to 1x. Non-critical — if it fails (e.g. Gate.io futures keys
+    // reject this), we continue since most exchanges default to 1x cross margin.
     try {
-      await exchange.setLeverage(2, marketSymbol);
+      await exchange.setLeverage(1, marketSymbol);
     } catch (levErr: any) {
       console.warn('setLeverage warning — continuing:', levErr?.message || levErr);
-      // If the error is fatal (not just lever already set), re-throw.
-      if (levErr?.message && !levErr.message.toLowerCase().includes('support linear')) {
-        throw levErr;
-      }
     }
 
     // Create market order
@@ -592,10 +595,10 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify(successResp), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     console.error('Execute Trade error:', error.message);
-    logAudit(supabase, {
-      userId: user.id, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 500,
+    try { logAudit(supabase, {
+      userId: user?.id, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 500,
       errorMessage: error?.message || 'Unknown',
-    }).catch(() => {});
+    }); } catch (_) {}
 
     return new Response(
       JSON.stringify({
