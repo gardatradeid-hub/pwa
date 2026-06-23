@@ -23,6 +23,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import ccxt from 'https://esm.sh/ccxt@4';
 import { decryptSecret } from '../_shared/crypto.ts';
+import { logAudit, Action } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -572,24 +573,30 @@ Deno.serve(async (req: Request) => {
     }
 
     // --- RETURN SUCCESS ---
-    return new Response(
-      JSON.stringify({
-        success: true,
-        trade,
-        positionDetails: {
-          quantity,
-          margin,
-          takeProfit,
-          riskAmount,
-          potentialProfit: riskAmount * rrRatio,
-          leverage: 1,
-        },
-        allChecks: checks,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // Async audit log (non-blocking)
+    const successResp = {
+      success: true,
+      trade,
+      positionDetails: {
+        quantity, margin, takeProfit, riskAmount,
+        potentialProfit: riskAmount * rrRatio,
+        leverage: 1,
+      },
+      allChecks: checks,
+    };
+    logAudit(supabase, {
+      userId: user.id, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 200,
+      responseBody: { success: true, symbol, side, entryPrice, quantity, margin },
+    }).catch(() => {});
+
+    return new Response(JSON.stringify(successResp), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
     console.error('Execute Trade error:', error.message);
+    logAudit(supabase, {
+      userId: user.id, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 500,
+      errorMessage: error?.message || 'Unknown',
+    }).catch(() => {});
+
     return new Response(
       JSON.stringify({
         success: false,

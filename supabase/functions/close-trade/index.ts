@@ -22,6 +22,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import ccxt from 'https://esm.sh/ccxt@4';
 import { decryptSecret } from '../_shared/crypto.ts';
+import { logAudit, Action } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -355,6 +356,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // --- RETURN ---
+    logAudit(supabase, {
+      userId: user.id, action: Action.CLOSE_TRADE, functionName: 'close-trade', responseStatus: 200,
+      responseBody: { tradeId: trade.id, symbol: trade.symbol, pnl: Math.round(pnlUsdt * 100) / 100 },
+    }).catch(() => {});
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -376,6 +382,11 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error: any) {
     console.error('Close Trade error:', error.message);
+    logAudit(supabase, {
+      userId: user.id, action: Action.CLOSE_TRADE, functionName: 'close-trade', responseStatus: 500,
+      errorMessage: error?.message || 'Unknown',
+    }).catch(() => {});
+
     return new Response(
       JSON.stringify({
         success: false,
