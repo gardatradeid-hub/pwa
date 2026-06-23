@@ -271,22 +271,25 @@ export default function TradePage() {
   const tabVisibleRef = useRef(true);
   useEffect(() => { const h = () => { tabVisibleRef.current = !document.hidden; }; document.addEventListener('visibilitychange', h); return () => document.removeEventListener('visibilitychange', h); }, []);
 
+  // Fetch live balance from exchange (user's own exchange)
+  const fetchLiveBalance = useCallback(async () => {
+    try {
+      const { fetchBalance } = await import('@/lib/ccxt-proxy');
+      const bal = await fetchBalance();
+      if (bal?.total_usdt != null && bal.total_usdt > 0) setBalance(bal.total_usdt);
+    } catch (_) { /* exchange may not be connected — store default stays */ }
+  }, [setBalance]);
+
   const fetchMarketData = useCallback(async () => {
     try {
       const [tickerData, ohlcvData] = await Promise.all([fetchTicker(symbol), fetchOHLCV(symbol, tf, 100)]);
       if (tickerData) setTicker(tickerData);
       if (ohlcvData.length > 0) setOhlcv(ohlcvData);
-      // Try to fetch live balance from exchange
-      try {
-        const { fetchBalance } = await import('@/lib/ccxt-proxy');
-        const bal = await fetchBalance();
-        if (bal?.total_usdt != null) setBalance(bal.total_usdt);
-      } catch (_) { /* ignore — balance will show fallback */ }
     } catch (_) { } finally { setIsLoading(false); }
   }, [symbol, tf]);
 
-  // Re-fetch on symbol or tf change
-  useEffect(() => { setIsLoading(true); fetchMarketData(); }, [symbol, tf]);
+  // Re-fetch on symbol or tf change + fetch exchange balance
+  useEffect(() => { setIsLoading(true); fetchMarketData(); fetchLiveBalance(); }, [symbol, tf]);
 
   // Poll ticker every 5s
   useEffect(() => {
