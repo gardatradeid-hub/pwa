@@ -276,7 +276,8 @@ export default function TradePage() {
     try {
       const { fetchBalance } = await import('@/lib/ccxt-proxy');
       const bal = await fetchBalance();
-      if (bal?.total_usdt != null && bal.total_usdt > 0) setBalance(bal.total_usdt);
+      // Update balance even if 0 (connected but empty wallet)
+      if (bal?.total_usdt != null) setBalance(bal.total_usdt);
     } catch (_) { /* exchange may not be connected — store default stays */ }
   }, [setBalance]);
 
@@ -308,6 +309,26 @@ export default function TradePage() {
   }, [symbol, tf]);
 
   useEffect(() => { if (tradeStore.isLocked) navigate('/app/locked'); }, [tradeStore.isLocked]);
+
+  // Load active trade from DB on mount (persists across refresh)
+  useEffect(() => {
+    const loadActiveTrade = async () => {
+      const { supabase } = await import('@/config/supabase');
+      const userId = useUserStore.getState().profile?.id;
+      if (!userId) return;
+      const { data } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'open')
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) tradeStore.setActiveTrade(data as any);
+    };
+    loadActiveTrade();
+  }, []);
+
   useEffect(() => { if (tradeStore.activeTrade) setPositionLines({ entryPrice: tradeStore.activeTrade.entry_price, stopLoss: tradeStore.activeTrade.stop_loss, takeProfit: tradeStore.activeTrade.take_profit, side: tradeStore.activeTrade.side }); }, [tradeStore.activeTrade]);
 
   const handleAuthError = useCallback((msg: string) => { if (/unauthorized|jwt|expired|token/i.test(msg)) { addToast('error', 'Sesi Habis', 'Silakan login kembali.'); setTimeout(() => { useUserStore.getState().reset(); navigate('/login'); }, 1500); return true; } return false; }, [navigate, addToast]);
@@ -332,7 +353,7 @@ export default function TradePage() {
       {toasts.length > 0 && (<div className="fixed top-4 right-4 z-50 space-y-1.5 max-w-[280px]">{toasts.map((toast) => <ToastNotification key={toast.id} toast={toast} onDismiss={() => removeToast(toast.id)} />)}</div>)}
       <div className="flex items-center justify-between"><h1 className="text-lg font-bold">{t('nav.trade')}</h1><div className="flex items-center gap-1.5"><Coins className="w-3.5 h-3.5 text-garda-text-muted" /><span className="text-xs font-mono-num text-garda-text-secondary">{balance !== null ? formatUSDT(balance) : '...'} USDT</span></div></div>
       <CandlestickChart ohlcv={ohlcv} ticker={ticker} symbol={symbol} selectedTimeframe={tf} onTimeframeChange={setTf} isLoading={isLoading} positionLines={positionLines} />
-      <OrderPanel balance={balance || 1000} ticker={ticker} maxTrades={phase.max_trades} tradesToday={tradeStore.tradesToday} activeTrade={tradeStore.activeTrade} isLocked={tradeStore.isLocked} cooldownUntil={tradeStore.cooldownUntil} symbol={symbol} onSymbolChange={setSymbol} onExecute={handleExecute} onClose={handleClose} isSubmitting={isSubmitting} error={error} onPositionLinesChange={setPositionLines} />
+      <OrderPanel balance={balance ? balance : 0} ticker={ticker} maxTrades={phase.max_trades} tradesToday={tradeStore.tradesToday} activeTrade={tradeStore.activeTrade} isLocked={tradeStore.isLocked} cooldownUntil={tradeStore.cooldownUntil} symbol={symbol} onSymbolChange={setSymbol} onExecute={handleExecute} onClose={handleClose} isSubmitting={isSubmitting} error={error} onPositionLinesChange={setPositionLines} />
     </div>
   );
 }

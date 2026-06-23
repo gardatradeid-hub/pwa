@@ -494,33 +494,34 @@ Deno.serve(async (req: Request) => {
       console.warn('setLeverage warning — continuing:', levErr?.message || levErr);
     }
 
-    // Create market order
+    // --- ORDER EXECUTION (unified CCXT for all exchanges) ---
+    // Place market order, STOP LOSS, and TAKE PROFIT.
+    // Each exchange has slightly different requirements; we use CCXT unified types.
     const orderSide: 'buy' | 'sell' = side === 'long' ? 'buy' : 'sell';
+    const slSide: 'buy' | 'sell' = side === 'long' ? 'sell' : 'buy';
+
+    // 1. Market entry order — no price param for futures (Gate.io rejects price on futures market orders)
     const order = await exchange.createOrder(
-      symbol,
+      marketSymbol,   // futures format e.g. "BTC/USDT:USDT"
       'market',
       orderSide,
       quantity
     );
 
-    // Create stop loss order
-    const slSide: 'buy' | 'sell' = side === 'long' ? 'sell' : 'buy';
-    const slOrder = await exchange.createOrder(
-      symbol,
-      'stop_market',
-      slSide,
-      quantity,
-      undefined,
-      { stopPrice: stopLoss }
-    );
+    // 2. Stop Loss (stop market) — non-critical. If it fails, trade still goes through.
+    let slOrder: any = null;
+    try {
+      slOrder = await exchange.createOrder(
+        marketSymbol, 'market', slSide, quantity, undefined,
+        { stopPrice: stopLoss, reduceOnly: true }
+      );
+    } catch (slErr: any) {
+      console.warn('SL order failed — continuing without SL:', slErr?.message || slErr);
+    }
 
-    // Create take profit order
+    // 3. Take Profit (limit order at calculated TP price)
     const tpOrder = await exchange.createOrder(
-      symbol,
-      'limit',
-      slSide,
-      quantity,
-      takeProfit,
+      marketSymbol, 'limit', slSide, quantity, takeProfit,
       { reduceOnly: true }
     );
 
@@ -539,9 +540,9 @@ Deno.serve(async (req: Request) => {
         risk_amount: riskAmount,
         rr_ratio: rrRatio,
         status: 'open',
-        exchange_order_id: order.id,
-        exchange_sl_order_id: slOrder.id,
-        exchange_tp_order_id: tpOrder.id,
+        exchange_order_id: order?.id || null,
+        exchange_sl_order_id: slOrder?.id || null,
+        exchange_tp_order_id: tpOrder?.id || null,
       })
       .select()
       .single();
