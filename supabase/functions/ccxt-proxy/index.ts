@@ -29,7 +29,7 @@ const EXCHANGE_CLASSES: Record<string, any> = {
   bybit: ccxt.bybit,
   coinex: ccxt.coinex,
   deribit: ccxt.deribit,
-  gateio: ccxt.gateio,
+  gateio: ccxt.gate,
   huobi: ccxt.huobi,
   kraken: ccxt.kraken,
   kucoin: ccxt.kucoin,

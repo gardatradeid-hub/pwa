@@ -27,7 +27,7 @@ const corsHeaders = {
 const EXCHANGE_CLASSES: Record<string, any> = {
   binance: ccxt.binance, bingx: ccxt.bingx, bitfinex: ccxt.bitfinex,
   bitget: ccxt.bitget, bitmex: ccxt.bitmex, bybit: ccxt.bybit,
-  coinex: ccxt.coinex, deribit: ccxt.deribit, gateio: ccxt.gateio,
+  coinex: ccxt.coinex, deribit: ccxt.deribit, gateio: ccxt.gate,
   huobi: ccxt.huobi, kraken: ccxt.kraken, kucoin: ccxt.kucoin,
   mexc: ccxt.mexc, okx: ccxt.okx, phemex: ccxt.phemex,
   whitebit: ccxt.whitebit, woox: ccxt.woox,
