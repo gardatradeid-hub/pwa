@@ -65,10 +65,10 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ADMIN
+  // ADMIN — uses its own guard, no onboarding required, but auth required
   {
     path: '/admin',
-    element: <ProtectedRoute requireOnboarding><AdminGuard><AdminLayout /></AdminGuard></ProtectedRoute>,
+    element: <ProtectedRoute><AdminGuard><AdminLayout /></AdminGuard></ProtectedRoute>,
     children: [
       { index: true, element: <AdminDashboard /> },
       { path: 'users', element: <AdminUsers /> },
