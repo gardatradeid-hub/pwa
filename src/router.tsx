@@ -22,6 +22,7 @@ const EvaluationPage = lazy(() => import('@/pages/states/EvaluationPage'));
 const ReflectionPage = lazy(() => import('@/pages/states/ReflectionPage'));
 
 // Admin
+const AdminLogin = lazy(() => import('@/pages/admin/AdminLogin'));
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout'));
 const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard'));
 const AdminUsers = lazy(() => import('@/pages/admin/AdminUsers'));
@@ -65,10 +66,16 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // ADMIN — uses its own guard, no onboarding required, but auth required
+  // ADMIN LOGIN — separate from Garda user auth
+  {
+    path: '/admin/login',
+    element: <AdminLogin />,
+  },
+
+  // ADMIN — protected by AdminGuard (own token, not Supabase auth)
   {
     path: '/admin',
-    element: <ProtectedRoute><AdminGuard><AdminLayout /></AdminGuard></ProtectedRoute>,
+    element: <AdminGuard><AdminLayout /></AdminGuard>,
     children: [
       { index: true, element: <AdminDashboard /> },
       { path: 'users', element: <AdminUsers /> },

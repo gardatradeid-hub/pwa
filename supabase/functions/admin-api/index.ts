@@ -46,6 +46,11 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Forbidden — not an admin' }, 403);
     }
 
+    // ---- check_admin (used by AdminGuard client-side: just returns role) ----
+    if (action === 'check_admin') {
+      return json({ success: true, data: { role: admin.role } });
+    }
+
     // Get user email for audit log
     const { data: profile } = await supabase
       .from('profiles')

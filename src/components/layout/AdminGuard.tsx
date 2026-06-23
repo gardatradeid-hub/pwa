@@ -1,36 +1,18 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
-import { supabase } from '@/config/supabase';
-import { useUserStore } from '@/store/useUserStore';
-import { LoadingScreen } from '@/components/ui/LoadingScreen';
+import { isAdminLoggedIn } from '@/pages/admin/AdminLogin';
 
 interface Props {
   children: ReactNode;
 }
 
+/**
+ * AdminGuard uses its own auth mechanism (separate from Supabase user auth).
+ * Checks for a valid admin token in localStorage.
+ */
 export function AdminGuard({ children }: Props) {
-  const { profile } = useUserStore();
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
-  const [checking, setChecking] = useState(true);
-
-  useEffect(() => {
-    async function check() {
-      try {
-        if (!profile) { setIsAdmin(false); setChecking(false); return; }
-        const { data, error } = await supabase
-          .from('admin_users')
-          .select('id')
-          .eq('id', profile.id)
-          .maybeSingle();
-
-        setIsAdmin(!error && !!data);
-      } catch { setIsAdmin(false); }
-      finally { setChecking(false); }
-    }
-    check();
-  }, [profile]);
-
-  if (checking) return <LoadingScreen />;
-  if (!isAdmin) return <Navigate to="/app" replace />;
+  if (!isAdminLoggedIn()) {
+    return <Navigate to="/admin/login" replace />;
+  }
   return <>{children}</>;
 }
