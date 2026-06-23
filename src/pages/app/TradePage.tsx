@@ -256,7 +256,7 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
    ================================================================ */
 export default function TradePage() {
   const { t } = useTranslation(); const navigate = useNavigate();
-  const { balance } = useUserStore(); const tradeStore = useTradeStore();
+  const { balance, setBalance } = useUserStore(); const tradeStore = useTradeStore();
   const phase = useUserStore.getState().getCurrentPhase();
   const { toasts, addToast, removeToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
@@ -276,6 +276,12 @@ export default function TradePage() {
       const [tickerData, ohlcvData] = await Promise.all([fetchTicker(symbol), fetchOHLCV(symbol, tf, 100)]);
       if (tickerData) setTicker(tickerData);
       if (ohlcvData.length > 0) setOhlcv(ohlcvData);
+      // Try to fetch live balance from exchange
+      try {
+        const { fetchBalance } = await import('@/lib/ccxt-proxy');
+        const bal = await fetchBalance();
+        if (bal?.total_usdt != null) setBalance(bal.total_usdt);
+      } catch (_) { /* ignore — balance will show fallback */ }
     } catch (_) { } finally { setIsLoading(false); }
   }, [symbol, tf]);
 
