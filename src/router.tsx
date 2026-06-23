@@ -3,8 +3,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { LandingLayout } from '@/components/layout/LandingLayout';
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 import { OnboardingGuard } from '@/components/layout/OnboardingGuard';
+import { AdminGuard } from '@/components/layout/AdminGuard';
 
-// Lazy loaded pages
 import { lazy } from 'react';
 
 const LandingPage = lazy(() => import('@/pages/landing/LandingPage'));
@@ -21,40 +21,24 @@ const LockedPage = lazy(() => import('@/pages/states/LockedPage'));
 const EvaluationPage = lazy(() => import('@/pages/states/EvaluationPage'));
 const ReflectionPage = lazy(() => import('@/pages/states/ReflectionPage'));
 
+// Admin
+const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout'));
+const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard'));
+const AdminUsers = lazy(() => import('@/pages/admin/AdminUsers'));
+const AdminUserDetail = lazy(() => import('@/pages/admin/AdminUserDetail'));
+const AdminAuditLogs = lazy(() => import('@/pages/admin/AdminAuditLogs'));
+const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
+
 export const router = createBrowserRouter([
-  // PUBLIC LANDING
-  {
-    path: '/',
-    element: <LandingLayout />,
-    children: [
-      { index: true, element: <LandingPage /> },
-    ],
-  },
+  // LANDING
+  { path: '/', element: <LandingLayout />, children: [{ index: true, element: <LandingPage /> }] },
 
   // AUTH
-  {
-    path: '/login',
-    element: <LandingLayout />,
-    children: [
-      { index: true, element: <AuthPage /> },
-    ],
-  },
-  {
-    path: '/register',
-    element: <LandingLayout />,
-    children: [
-      { index: true, element: <AuthPage /> },
-    ],
-  },
-  {
-    path: '/register/:referralCode',
-    element: <LandingLayout />,
-    children: [
-      { index: true, element: <AuthPage /> },
-    ],
-  },
+  { path: '/login', element: <LandingLayout />, children: [{ index: true, element: <AuthPage /> }] },
+  { path: '/register', element: <LandingLayout />, children: [{ index: true, element: <AuthPage /> }] },
+  { path: '/register/:referralCode', element: <LandingLayout />, children: [{ index: true, element: <AuthPage /> }] },
 
-  // ONBOARDING (auth required, onboarding incomplete)
+  // ONBOARDING
   {
     path: '/onboarding',
     element: <ProtectedRoute><AppLayout /></ProtectedRoute>,
@@ -64,7 +48,7 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // APP (auth required, onboarding complete)
+  // APP
   {
     path: '/app',
     element: <ProtectedRoute requireOnboarding><AppLayout /></ProtectedRoute>,
@@ -81,12 +65,19 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // CATCH ALL
+  // ADMIN
   {
-    path: '*',
-    element: <LandingLayout />,
+    path: '/admin',
+    element: <ProtectedRoute requireOnboarding><AdminGuard><AdminLayout /></AdminGuard></ProtectedRoute>,
     children: [
-      { path: '*', element: <LandingPage /> },
+      { index: true, element: <AdminDashboard /> },
+      { path: 'users', element: <AdminUsers /> },
+      { path: 'users/:userId', element: <AdminUserDetail /> },
+      { path: 'logs', element: <AdminAuditLogs /> },
+      { path: 'settings', element: <AdminSettings /> },
     ],
   },
+
+  // CATCH ALL
+  { path: '*', element: <LandingLayout />, children: [{ path: '*', element: <LandingPage /> }] },
 ]);
