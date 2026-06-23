@@ -59,10 +59,10 @@ export function extractAdminToken(authHeader: string | null): string | null {
   return authHeader.slice(7).trim();
 }
 
-// Hardened CORS (no wildcard for admin endpoints)
+// CORS headers for admin endpoints
 export const adminCorsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('ADMIN_CORS_ORIGIN') || 'https://garda-alpha.vercel.app',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
+  'Access-Control-Allow-Origin': Deno.env.get('ADMIN_CORS_ORIGIN') || '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
 };

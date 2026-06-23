@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAdminUser, useUpdateUser } from '@/hooks/useAdmin';
 import { formatDate, formatPrice, formatUSDT } from '@/lib/formatters';
@@ -16,17 +16,18 @@ export default function AdminUserDetail() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  if (isLoading) return <div className="flex items-center gap-2 py-12 justify-center text-garda-text-muted"><Loader2 className="w-5 h-5 animate-spin" />Memuat...</div>;
+  const user = !isLoading ? data?.data?.user : undefined;
+  const trades = !isLoading ? (data?.data?.trades ?? []) : [];
+  const stats = !isLoading ? (data?.data?.stats ?? []) : [];
 
-  const user = data?.data?.user;
-  const trades = data?.data?.trades ?? [];
-  const stats = data?.data?.stats ?? [];
-
-  if (!user) return <p className="text-garda-pink">User tidak ditemukan.</p>;
-
-  if (phase === 1 && user.current_phase) setPhase(user.current_phase);
-  if (!exchange && user.exchange) setExchange(user.exchange);
-  if (!onboarding && user.onboarding_completed !== undefined) setOnboarding(user.onboarding_completed);
+  // Sync state from fetched data (only when data first loads)
+  const initialSync = useRef(true);
+  if (user && initialSync.current) {
+    initialSync.current = false;
+    if (user.current_phase && phase === 1) setPhase(user.current_phase);
+    if (user.exchange && !exchange) setExchange(user.exchange);
+    if (user.onboarding_completed !== undefined && onboarding === false) setOnboarding(user.onboarding_completed);
+  }
 
   const handleSave = async () => {
     setSaving(true); setMsg(null);
@@ -39,6 +40,9 @@ export default function AdminUserDetail() {
 
   const wins = trades.filter((t: any) => (t.pnl_r || 0) > 0).length;
   const losses = trades.filter((t: any) => (t.pnl_r || 0) <= 0).length;
+
+  if (isLoading) return <div className="flex items-center gap-2 py-12 justify-center text-garda-text-muted"><Loader2 className="w-5 h-5 animate-spin" />Memuat...</div>;
+  if (!user) return <div className="py-12 text-center"><p className="text-garda-pink">User tidak ditemukan.</p><Link to="/admin/users" className="text-garda-cyan text-sm hover:underline mt-2 inline-block">Kembali ke daftar</Link></div>;
 
   return (
     <div className="space-y-6 max-w-4xl">
