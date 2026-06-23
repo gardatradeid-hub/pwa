@@ -27,7 +27,7 @@ const FALLBACK_CONFIG: AppConfig = {
     tiered_reset: 'monthly',
   },
   revenge_config: { detection_window_min: 5, cooldown_penalty_min: 15 },
-  supported_pairs: ['BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'SOL/USDT', 'BNB/USDT'],
+  supported_pairs: ['BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'SOL/USDT', 'BNB/USDT', 'SPCX/USDT'],
   supported_exchanges: ['bybit', 'binance', 'okx'],
 };
 

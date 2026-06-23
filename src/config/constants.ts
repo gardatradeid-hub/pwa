@@ -8,6 +8,7 @@ export const SUPPORTED_PAIRS = [
   'XRP/USDT',
   'SOL/USDT',
   'BNB/USDT',
+  'SPCX/USDT',
 ] as const;
 
 export const TIMEFRAMES = [

@@ -101,7 +101,7 @@ function CandlestickChart({ ohlcv, ticker, selectedTimeframe, onTimeframeChange,
 /* ================================================================
    ORDER PANEL
    ================================================================ */
-const SUPPORTED_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'SOL/USDT', 'BNB/USDT'];
+const SUPPORTED_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'XRP/USDT', 'SOL/USDT', 'BNB/USDT', 'SPCX/USDT'];
 const RR_OPTIONS = [2, 3, 5];
 const QTY_PERCENTS = [25, 50, 75, 100];
 function getCoinUnit(sym: string) { return sym.split('/')[0] || 'BTC'; }
