@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/config/supabase';
 import { Shield, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
-const ADMIN_TOKEN_KEY = 'garda-admin-token';
+// Token key — intentionally different naming from any Garda session keys
+// to prevent accidental cross-contamination
+const ADMIN_TOKEN_KEY = '_garda_admin_tkn';
 
 export function getAdminToken(): string | null {
   return localStorage.getItem(ADMIN_TOKEN_KEY);
@@ -12,17 +13,49 @@ export function getAdminToken(): string | null {
 
 export function clearAdminToken() {
   localStorage.removeItem(ADMIN_TOKEN_KEY);
+  // Also clear any other potential admin data
+  sessionStorage.removeItem('garda-admin-session');
 }
 
+/**
+ * Verify the admin token by parsing it client-side.
+ * Returns true if token exists, not tampered (structure-valid), and not expired.
+ */
 export function isAdminLoggedIn(): boolean {
-  const token = getAdminToken();
-  if (!token) return false;
   try {
+    const token = getAdminToken();
+    if (!token) return false;
     const decoded = atob(token);
-    const [, expiryStr] = decoded.split(':');
-    const expiry = parseInt(expiryStr, 10);
-    return Date.now() < expiry;
-  } catch { return false; }
+    const parts = decoded.split(':');
+    if (parts.length < 3) return false;
+    const expiry = parseInt(parts[1], 10);
+    if (isNaN(expiry) || Date.now() > expiry) {
+      clearAdminToken();
+      return false;
+    }
+    return true;
+  } catch {
+    clearAdminToken();
+    return false;
+  }
+}
+
+/**
+ * Safely invoke an admin edge function with the admin token.
+ * Attaches the Bearer token automatically.
+ */
+export async function adminFetch(action: string, body: Record<string, unknown> = {}): Promise<any> {
+  const token = getAdminToken();
+  if (!token) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase.functions.invoke(action, {
+    body: { ...body },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (error) throw new Error(error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export default function AdminLogin() {
@@ -33,7 +66,7 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Already logged in? redirect to dashboard
+  // Already logged in? redirect
   if (isAdminLoggedIn()) { navigate('/admin', { replace: true }); return null; }
 
   const handleSubmit = async (e: React.FormEvent) => {

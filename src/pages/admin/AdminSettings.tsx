@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAdminConfig } from '@/hooks/useAdmin';
+import { adminFetch } from '@/pages/admin/AdminLogin';
 import { Loader2, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -16,13 +17,9 @@ export default function AdminSettings() {
   const handleUpdate = async (key: string, rawValue: string) => {
     setSaving(key); setMsg(null);
     try {
-      // Try to parse JSON, else treat as string
       let value: any;
       try { value = JSON.parse(rawValue); } catch { value = rawValue; }
-      const { data: result } = await supabase.functions.invoke('admin-api', {
-        body: { action: 'update_config', key, value: typeof value === 'string' ? value : JSON.stringify(value) },
-      });
-      if (result?.error) throw new Error(result.error);
+      await adminFetch('admin-api', { action: 'update_config', key, value: typeof value === 'string' ? value : JSON.stringify(value) });
       setMsg(`Config "${key}" berhasil diupdate.`);
       refetch();
     } catch (e: any) { setMsg(e.message || 'Gagal'); }
@@ -55,7 +52,7 @@ export default function AdminSettings() {
   );
 }
 
-import { supabase } from '@/config/supabase';
+// no-op; adminFetch used instead
 
 interface ConfigEditorProps {
   configKey: string;

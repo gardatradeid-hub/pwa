@@ -1,40 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/config/supabase';
+import { adminFetch } from '@/pages/admin/AdminLogin';
 
-async function adminCall<T>(params: Record<string, any>): Promise<T> {
-  const { data, error } = await supabase.functions.invoke('admin-api', {
-    body: params,
-  });
-  if (error) throw new Error(error.message);
-  if (data?.error) throw new Error(data.error);
-  return data as T;
+async function adminCall<T>(params: Record<string, unknown>): Promise<T> {
+  return adminFetch('admin-api', params) as T;
 }
 
-interface ListUsersResponse {
-  success: boolean;
-  data: any[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-interface GetLogsResponse {
-  success: boolean;
-  data: any[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-interface GetConfigResponse {
-  success: boolean;
-  data: Record<string, any>;
-}
-
-interface GetUserResponse {
-  success: boolean;
-  data: { user: any; trades: any[]; stats: any[] };
-}
+interface ListUsersResponse { success: boolean; data: any[]; total: number; page: number; limit: number; }
+interface GetLogsResponse { success: boolean; data: any[]; total: number; page: number; limit: number; }
+interface GetConfigResponse { success: boolean; data: Record<string, any>; }
+interface GetUserResponse { success: boolean; data: { user: any; trades: any[]; stats: any[] }; }
 
 export function useAdminUsers(page = 1, limit = 20) {
   return useQuery<ListUsersResponse>({
@@ -73,20 +47,14 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: (params: { user_id: string; current_phase?: number; onboarding_completed?: boolean; exchange?: string }) =>
       adminCall({ action: 'update_user', ...params }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'users'] });
-      qc.invalidateQueries({ queryKey: ['admin', 'user'] });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'users'] }); qc.invalidateQueries({ queryKey: ['admin', 'user'] }); },
   });
 }
 
 export function useUpdateConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (params: { key: string; value: any }) =>
-      adminCall({ action: 'update_config', ...params }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'config'] });
-    },
+    mutationFn: (params: { key: string; value: any }) => adminCall({ action: 'update_config', ...params }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'config'] }); },
   });
 }
