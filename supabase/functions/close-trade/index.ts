@@ -161,14 +161,16 @@ Deno.serve(async (req: Request) => {
       options: { defaultType: 'swap' },
     });
 
+    // Load markets to get the correct futures symbol ID.
+    // Gate.io uses BTC/USDT:USDT for futures, not BTC/USDT (which is spot).
+    await exchange.loadMarkets();
+    const market = (exchange as any).markets?.[trade.symbol];
+    const marketSymbol = market?.id ?? trade.symbol;
+
     // --- CLOSE POSITION ---
-    // Close with a market order. Gate.io requires a price param even for
-    // market orders to calculate total cost. We pass takeProfit as
-    // the reference price (it's a limit order to TP, so the price is
-    // already in the trade).
     const closeSide: 'buy' | 'sell' = trade.side === 'long' ? 'sell' : 'buy';
     const closeOrder = await exchange.createOrder(
-      trade.symbol,
+      marketSymbol,
       'market',
       closeSide,
       Number(trade.quantity),
@@ -179,14 +181,14 @@ Deno.serve(async (req: Request) => {
     // Cancel SL + TP orders
     try {
       if (trade.exchange_sl_order_id) {
-        await exchange.cancelOrder(trade.exchange_sl_order_id, trade.symbol);
+        await exchange.cancelOrder(trade.exchange_sl_order_id, marketSymbol);
       }
-    } catch (_) { /* ignore — order might already be filled */ }
+    } catch (_) {}
     try {
       if (trade.exchange_tp_order_id) {
-        await exchange.cancelOrder(trade.exchange_tp_order_id, trade.symbol);
+        await exchange.cancelOrder(trade.exchange_tp_order_id, marketSymbol);
       }
-    } catch (_) { /* ignore */ }
+    } catch (_) {}
 
     // --- CALCULATE P&L ---
     const exitPrice = closeOrder.price || closeOrder.average || Number(trade.entry_price);
