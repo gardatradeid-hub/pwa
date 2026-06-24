@@ -439,6 +439,11 @@ Deno.serve(async (req: Request) => {
     const failedChecks = checks.filter((c) => !c.passed && c.blocking);
 
     if (failedChecks.length > 0) {
+      logAudit(supabase, {
+        userId: user.id, userEmail: user?.email || profile?.email, action: Action.EXECUTE_TRADE,
+        functionName: 'execute-trade', requestBody: { symbol, side, entryPrice, stopLoss, rrRatio },
+        responseStatus: 422, errorMessage: 'Guardrail: ' + failedChecks.map(c => c.name).join(', '), ipAddress,
+      });
       return new Response(
         JSON.stringify({
           success: false,
