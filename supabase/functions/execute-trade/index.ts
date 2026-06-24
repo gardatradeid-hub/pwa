@@ -442,9 +442,9 @@ Deno.serve(async (req: Request) => {
 
     if (failedChecks.length > 0) {
       logAudit(supabase, {
-        userId: user.id, userEmail: user?.email || profile?.email, action: Action.EXECUTE_TRADE,
+        userId: user.id, userEmail, action: Action.EXECUTE_TRADE,
         functionName: 'execute-trade', requestBody: { symbol, side, entryPrice, stopLoss, rrRatio },
-        responseStatus: 422, errorMessage: 'Guardrail: ' + failedChecks.map(c => c.name).join(', '), ipAddress,
+        responseStatus: 422, errorMessage: 'Guardrail: ' + failedChecks.map(c => c.name).join(', '),
       });
       return new Response(
         JSON.stringify({
@@ -619,9 +619,9 @@ Deno.serve(async (req: Request) => {
       allChecks: checks,
     };
     logAudit(supabase, {
-      userId: user.id, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 200,
+      userId: user.id, userEmail, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 200,
       responseBody: { success: true, symbol, side, entryPrice, quantity, margin },
-    }).catch(() => {});
+    });
 
     return new Response(JSON.stringify(successResp), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
