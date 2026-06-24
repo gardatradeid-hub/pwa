@@ -62,8 +62,8 @@ export async function fetchPositions() {
 async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promise<any> {
   let lastError: any;
   const profile = useUserStore.getState().profile;
-  const userId = profile?.id;
-  const userEmail = profile?.email;
+  const userId = profile?.id || undefined;
+  const userEmail = profile?.email || undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
