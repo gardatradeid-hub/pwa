@@ -156,6 +156,8 @@ Deno.serve(async (req: Request) => {
       .eq('id', user.id)
       .single();
 
+    const userEmail = profile?.email || user.email || null;
+
     if (profileError || !profile) {
       return new Response(
         JSON.stringify({ error: 'Profile not found' }),
