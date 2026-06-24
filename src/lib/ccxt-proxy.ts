@@ -25,11 +25,7 @@ async function callProxy<T>(params: ProxyParams): Promise<ProxyResponse<T>> {
   const { data, error } = await supabase.functions.invoke('ccxt-proxy', {
     body: params,
   });
-
-  if (error) {
-    return { success: false, error: error.message };
-  }
-
+  if (error) return { success: false, error: error.message };
   return data as ProxyResponse<T>;
 }
 
@@ -39,9 +35,7 @@ export async function fetchTicker(symbol: string): Promise<TickerData | null> {
 }
 
 export async function fetchOHLCV(
-  symbol: string,
-  timeframe = '15m',
-  limit = 100
+  symbol: string, timeframe = '15m', limit = 100,
 ): Promise<OHLCVData[]> {
   const res = await callProxy<OHLCVData[]>({ action: 'ohlcv', symbol, timeframe, limit });
   return res.success && res.data ? res.data : [];
@@ -57,30 +51,47 @@ export async function fetchPositions() {
   return res.success && res.data ? res.data : [];
 }
 
+/**
+ * Retry wrapper for critical operations (execute + close).
+ * Supabase edge functions can occasionally fail with transient network errors
+ * ("failed to send a request to the edge function"). We retry up to 3 times
+ * with exponential backoff.
+ */
+async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promise<any> {
+  let lastError: any;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const { data, error } = await supabase.functions.invoke(fnName, {
+        body,
+      });
+      if (error) {
+        lastError = error;
+        // Transient network error — the function was never reached,
+        // so retry is safe (no duplicate order).
+        if (attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+          continue;
+        }
+        throw new Error(`Gagal terhubung ke server. ${error.message || 'Coba lagi.'}`);
+      }
+      if (data?.error) throw new Error(data.error);
+      return data;
+    } catch (e: any) {
+      if (e.message?.includes('Gagal terhubung')) throw e;
+      // Non-network errors from the function itself — don't retry
+      throw e;
+    }
+  }
+  throw lastError || new Error('Unknown error after retries');
+}
+
 export async function executeTrade(params: {
-  symbol: string;
-  side: 'long' | 'short';
-  entryPrice: number;
-  stopLoss: number;
-  rrRatio: number;
+  symbol: string; side: 'long' | 'short';
+  entryPrice: number; stopLoss: number; rrRatio: number;
 }): Promise<any> {
-  const { data, error } = await supabase.functions.invoke('execute-trade', {
-    body: params,
-  });
-  if (error) throw new Error(error.message);
-  return data;
+  return invokeWithRetry('execute-trade', params);
 }
 
 export async function closeTrade(tradeId: string): Promise<any> {
-  const { data, error } = await supabase.functions.invoke('close-trade', {
-    body: { tradeId },
-  });
-  if (error) {
-    // supabase-js error: network failed, function never reached
-    throw new Error(
-      `Gagal terhubung ke server. ${error.message || 'Coba lagi.'}`,
-    );
-  }
-  if (data?.error) throw new Error(data.error);
-  return data;
+  return invokeWithRetry('close-trade', { tradeId });
 }
