@@ -162,20 +162,26 @@ Deno.serve(async (req: Request) => {
     });
 
     // Load markets to get the correct futures symbol ID.
-    // Gate.io uses BTC/USDT:USDT for futures, not BTC/USDT (which is spot).
+    // Gate.io uses SPCX/USDT:USDT for futures, SPCX/USDT for spot.
+    // Without the :USDT suffix, the API call hits spot endpoint →
+    // "Request API key does not have spot write permission".
     await exchange.loadMarkets();
     const market = (exchange as any).markets?.[trade.symbol];
     const marketSymbol = market?.id ?? trade.symbol;
 
+    console.log('close-trade marketSymbol:', marketSymbol, '(from', trade.symbol, ')');
+
     // --- CLOSE POSITION ---
     const closeSide: 'buy' | 'sell' = trade.side === 'long' ? 'sell' : 'buy';
+
+    // Also handle the SL/TP args for order creation to avoid spot permission errors
     const closeOrder = await exchange.createOrder(
       marketSymbol,
       'market',
       closeSide,
       Number(trade.quantity),
-      Number(trade.take_profit),
-      { reduceOnly: true }
+      undefined,           // no price for market order (futures)
+      { reduceOnly: true } // close position only, never open new
     );
 
     // Cancel SL + TP orders
