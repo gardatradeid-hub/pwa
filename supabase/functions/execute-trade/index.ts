@@ -489,8 +489,11 @@ Deno.serve(async (req: Request) => {
     // Bybit requires setLeverage() with the linear swap market symbol format.
     await exchange.loadMarkets();
 
-    // Find the canonical linear-swap symbol ID. For Bybit this is "BTC/USDT:USDT".
-    const market = (exchange as any).markets?.[symbol];
+    // Find the canonical linear-swap symbol ID. Gate.io uses SPCX/USDT:USDT
+    // for futures (swap), while SPCX/USDT resolves to spot. Must use the
+    // :USDT suffix to get the correct market type.
+    const swapSymbol = symbol.includes(':') ? symbol : `${symbol}:USDT`;
+    const market = (exchange as any).markets?.[swapSymbol];
     const marketSymbol = market?.id ?? symbol;
 
     // Set leverage to 1x. Non-critical — if it fails (e.g. Gate.io futures keys
@@ -531,28 +534,49 @@ Deno.serve(async (req: Request) => {
     // 1. Market entry order
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2. Stop Loss — try CCXT unified method first
+    // 2. Stop Loss — try CCXT unified method first with dual parameter strategy
     let slOrder: any = null;
     try {
       if (exchange.has.createStopLossOrder) {
-        slOrder = await (exchange as any).createStopLossOrder(marketSymbol, quantity, stopLoss, { reduceOnly: true });
+        slOrder = await (exchange as any).createStopLossOrder(marketSymbol, quantity, stopLoss, {
+          reduceOnly: true,
+          triggerPrice: stopLoss,
+          stopLossPrice: stopLoss,
+          stopPrice: stopLoss,
+          settlement: 'usdt',
+        });
       } else {
-        slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, { stopPrice: stopLoss, reduceOnly: true });
+        slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, {
+          stopPrice: stopLoss, reduceOnly: true,
+          triggerPrice: stopLoss,
+          stopLossPrice: stopLoss,
+          settlement: 'usdt',
+        });
       }
     } catch (slErr: any) {
-      console.warn('SL order failed — continuing without SL:', slErr?.message || slErr);
+      console.error('SL order failed — continuing without SL:', slErr?.message || slErr);
     }
 
-    // 3. Take Profit — try CCXT unified method first
+    // 3. Take Profit — try CCXT unified method first with dual parameter strategy
     let tpOrder: any = null;
     try {
       if (exchange.has.createTakeProfitOrder) {
-        tpOrder = await (exchange as any).createTakeProfitOrder(marketSymbol, quantity, takeProfit, { reduceOnly: true });
+        tpOrder = await (exchange as any).createTakeProfitOrder(marketSymbol, quantity, takeProfit, {
+          reduceOnly: true,
+          triggerPrice: takeProfit,
+          takeProfitPrice: takeProfit,
+          settlement: 'usdt',
+        });
       } else {
-        tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, { reduceOnly: true });
+        tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, {
+          reduceOnly: true,
+          triggerPrice: takeProfit,
+          takeProfitPrice: takeProfit,
+          settlement: 'usdt',
+        });
       }
     } catch (tpErr: any) {
-      console.warn('TP order failed — continuing without TP:', tpErr?.message || tpErr);
+      console.error('TP order failed — continuing without TP:', tpErr?.message || tpErr);
     }
 
     // --- SAVE TO DATABASE ---
