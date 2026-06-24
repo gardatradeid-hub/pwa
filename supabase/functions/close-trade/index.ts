@@ -382,10 +382,12 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error: any) {
     console.error('Close Trade error:', error.message);
-    logAudit(supabase, {
-      userId: user.id, action: Action.CLOSE_TRADE, functionName: 'close-trade', responseStatus: 500,
-      errorMessage: error?.message || 'Unknown',
-    }).catch(() => {});
+    try {
+      await logAudit(supabase, {
+        userId: user?.id, action: Action.CLOSE_TRADE, functionName: 'close-trade', responseStatus: 500,
+        errorMessage: error?.message || 'Unknown',
+      });
+    } catch (_) {}
 
     return new Response(
       JSON.stringify({

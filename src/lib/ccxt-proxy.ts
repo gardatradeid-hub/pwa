@@ -75,6 +75,12 @@ export async function closeTrade(tradeId: string): Promise<any> {
   const { data, error } = await supabase.functions.invoke('close-trade', {
     body: { tradeId },
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // supabase-js error: network failed, function never reached
+    throw new Error(
+      `Gagal terhubung ke server. ${error.message || 'Coba lagi.'}`,
+    );
+  }
+  if (data?.error) throw new Error(data.error);
   return data;
 }
