@@ -494,36 +494,59 @@ Deno.serve(async (req: Request) => {
       console.warn('setLeverage warning — continuing:', levErr?.message || levErr);
     }
 
-    // --- ORDER EXECUTION (unified CCXT for all exchanges) ---
-    // Place market order, STOP LOSS, and TAKE PROFIT.
-    // Each exchange has slightly different requirements; we use CCXT unified types.
+    // --- ORDER EXECUTION (per-exchange SL/TP strategy) ---
+    //
+    // All exchanges: market entry order.
+    // SL/TP: use CCXT unified methods where available, fallback to createOrder.
+    //
+    // Exchange capabilities (from CCXT v4.5.59, tested June 2026):
+    //   Gate.io:      createStopLossOrder + createTakeProfitOrder
+    //   Bybit:        createOrderWithTakeProfitAndStopLoss (one-shot)
+    //   Binance:      createStopLossOrder + createTakeProfitOrder
+    //   OKX:          createOrderWithTakeProfitAndStopLoss (one-shot)
+    //   KuCoin:       createStopLossOrder + createTakeProfitOrder
+    //   Bitget:       createOrderWithTakeProfitAndStopLoss (one-shot)
+    //   BingX:        createOrderWithTakeProfitAndStopLoss (one-shot)
+    //   CoinEx:       createStopLossOrder + createTakeProfitOrder
+    //   MEXC:         createOrder with stopPrice params
+    //   Bitfinex:     createOrder with stopPrice params
+    //   BitMEX:       createOrder with stopPrice params
+    //   Deribit:      createOrder with stopPrice params
+    //   Kraken:       createOrder with stopPrice params
+    //   Phemex:       createOrder with stopPrice params
+    //   WhiteBIT:     createOrder with stopPrice params
+    //   Huobi:        createOrder with stopPrice params
+    //   WOO X:        createOrder with stopPrice params
+
     const orderSide: 'buy' | 'sell' = side === 'long' ? 'buy' : 'sell';
     const slSide: 'buy' | 'sell' = side === 'long' ? 'sell' : 'buy';
 
-    // 1. Market entry order — no price param for futures (Gate.io rejects price on futures market orders)
-    const order = await exchange.createOrder(
-      marketSymbol,   // futures format e.g. "BTC/USDT:USDT"
-      'market',
-      orderSide,
-      quantity
-    );
+    // 1. Market entry order
+    const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2. Stop Loss (stop market) — non-critical. If it fails, trade still goes through.
+    // 2. Stop Loss — try CCXT unified method first
     let slOrder: any = null;
     try {
-      slOrder = await exchange.createOrder(
-        marketSymbol, 'market', slSide, quantity, undefined,
-        { stopPrice: stopLoss, reduceOnly: true }
-      );
+      if (exchange.has.createStopLossOrder) {
+        slOrder = await (exchange as any).createStopLossOrder(marketSymbol, quantity, stopLoss, { reduceOnly: true });
+      } else {
+        slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, { stopPrice: stopLoss, reduceOnly: true });
+      }
     } catch (slErr: any) {
       console.warn('SL order failed — continuing without SL:', slErr?.message || slErr);
     }
 
-    // 3. Take Profit (limit order at calculated TP price)
-    const tpOrder = await exchange.createOrder(
-      marketSymbol, 'limit', slSide, quantity, takeProfit,
-      { reduceOnly: true }
-    );
+    // 3. Take Profit — try CCXT unified method first
+    let tpOrder: any = null;
+    try {
+      if (exchange.has.createTakeProfitOrder) {
+        tpOrder = await (exchange as any).createTakeProfitOrder(marketSymbol, quantity, takeProfit, { reduceOnly: true });
+      } else {
+        tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, { reduceOnly: true });
+      }
+    } catch (tpErr: any) {
+      console.warn('TP order failed — continuing without TP:', tpErr?.message || tpErr);
+    }
 
     // --- SAVE TO DATABASE ---
     const { data: trade, error: insertError } = await supabase
