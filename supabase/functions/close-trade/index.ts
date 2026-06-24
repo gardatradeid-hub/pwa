@@ -162,13 +162,17 @@ Deno.serve(async (req: Request) => {
     });
 
     // --- CLOSE POSITION ---
+    // Close with a market order. Gate.io requires a price param even for
+    // market orders to calculate total cost. We pass takeProfit as
+    // the reference price (it's a limit order to TP, so the price is
+    // already in the trade).
     const closeSide: 'buy' | 'sell' = trade.side === 'long' ? 'sell' : 'buy';
     const closeOrder = await exchange.createOrder(
       trade.symbol,
       'market',
       closeSide,
       Number(trade.quantity),
-      undefined,
+      Number(trade.take_profit),
       { reduceOnly: true }
     );
 
