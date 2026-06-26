@@ -534,47 +534,28 @@ Deno.serve(async (req: Request) => {
     // 1. Market entry order
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2. Stop Loss — try CCXT unified method first with dual parameter strategy
+    // 2. Stop Loss — stop market order with reduceOnly. Gate.io futures
+    // requires triggerPrice / stopLossPrice parameter for stop-loss orders.
+    // Passing all known trigger names to maximize compatibility.
     let slOrder: any = null;
     try {
-      if (exchange.has.createStopLossOrder) {
-        slOrder = await (exchange as any).createStopLossOrder(marketSymbol, quantity, stopLoss, {
-          reduceOnly: true,
-          triggerPrice: stopLoss,
-          stopLossPrice: stopLoss,
-          stopPrice: stopLoss,
-          settlement: 'usdt',
-        });
-      } else {
-        slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, {
-          stopPrice: stopLoss, reduceOnly: true,
-          triggerPrice: stopLoss,
-          stopLossPrice: stopLoss,
-          settlement: 'usdt',
-        });
-      }
+      slOrder = await exchange.createOrder(
+        marketSymbol, 'market', slSide, quantity, undefined,
+        { stopPrice: stopLoss, stopLossPrice: stopLoss, reduceOnly: true }
+      );
     } catch (slErr: any) {
       console.error('SL order failed — continuing without SL:', slErr?.message || slErr);
     }
 
-    // 3. Take Profit — try CCXT unified method first with dual parameter strategy
+    // 3. Take Profit — limit order at the calculated TP price.
     let tpOrder: any = null;
     try {
-      if (exchange.has.createTakeProfitOrder) {
-        tpOrder = await (exchange as any).createTakeProfitOrder(marketSymbol, quantity, takeProfit, {
-          reduceOnly: true,
-          triggerPrice: takeProfit,
-          takeProfitPrice: takeProfit,
-          settlement: 'usdt',
-        });
-      } else {
-        tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, {
-          reduceOnly: true,
-          triggerPrice: takeProfit,
-          takeProfitPrice: takeProfit,
-          settlement: 'usdt',
-        });
-      }
+      // Gate.io requires a triggerPrice param for TP on price_orders too. For
+      // exchanges that reject trigger price on a limit order, it is silently ignored.
+      tpOrder = await exchange.createOrder(
+        marketSymbol, 'limit', slSide, quantity, takeProfit,
+        { reduceOnly: true, triggerPrice: takeProfit, takeProfitPrice: takeProfit }
+      );
     } catch (tpErr: any) {
       console.error('TP order failed — continuing without TP:', tpErr?.message || tpErr);
     }
