@@ -536,29 +536,33 @@ Deno.serve(async (req: Request) => {
 
     // 2. Stop Loss — stop market order with reduceOnly. Gate.io futures
     // requires triggerPrice / stopLossPrice parameter for stop-loss orders.
-    // Passing all known trigger names to maximize compatibility.
     let slOrder: any = null;
+    let slError: string | null = null;
     try {
       slOrder = await exchange.createOrder(
         marketSymbol, 'market', slSide, quantity, undefined,
         { stopPrice: stopLoss, stopLossPrice: stopLoss, reduceOnly: true }
       );
     } catch (slErr: any) {
-      console.error('SL order failed — continuing without SL:', slErr?.message || slErr);
+      slError = slErr?.message?.slice(0, 300) || 'unknown';
+      console.error('SL order failed:', slError);
     }
 
-    // 3. Take Profit — limit order at the calculated TP price.
+    // 3. Take Profit — limit order at the calculated TP price
     let tpOrder: any = null;
+    let tpError: string | null = null;
     try {
-      // Gate.io requires a triggerPrice param for TP on price_orders too. For
-      // exchanges that reject trigger price on a limit order, it is silently ignored.
       tpOrder = await exchange.createOrder(
         marketSymbol, 'limit', slSide, quantity, takeProfit,
-        { reduceOnly: true, triggerPrice: takeProfit, takeProfitPrice: takeProfit }
+        { reduceOnly: true }
       );
     } catch (tpErr: any) {
-      console.error('TP order failed — continuing without TP:', tpErr?.message || tpErr);
+      tpError = tpErr?.message?.slice(0, 300) || 'unknown';
+      console.error('TP order failed:', tpError);
     }
+
+    // Compile SL/TP errors for the trade notes
+    const sltpNote = [slError ? 'SL: ' + slError : '', tpError ? 'TP: ' + tpError : ''].filter(Boolean).join(' | ') || null;
 
     // --- SAVE TO DATABASE ---
     const { data: trade, error: insertError } = await supabase
@@ -575,6 +579,7 @@ Deno.serve(async (req: Request) => {
         risk_amount: riskAmount,
         rr_ratio: rrRatio,
         status: 'open',
+        notes: sltpNote,
         exchange_order_id: order?.id || null,
         exchange_sl_order_id: slOrder?.id || null,
         exchange_tp_order_id: tpOrder?.id || null,
