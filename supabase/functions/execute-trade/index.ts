@@ -534,31 +534,54 @@ Deno.serve(async (req: Request) => {
     // 1. Market entry order
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2. Stop Loss — stop market order with reduceOnly. Gate.io futures
-    // requires triggerPrice / stopLossPrice parameter for stop-loss orders.
-    let slOrder: any = null;
-    let slError: string | null = null;
-    try {
-      slOrder = await exchange.createOrder(
-        marketSymbol, 'market', slSide, quantity, undefined,
-        { stopPrice: stopLoss, stopLossPrice: stopLoss, reduceOnly: true }
-      );
-    } catch (slErr: any) {
-      slError = slErr?.message?.slice(0, 300) || 'unknown';
-      console.error('SL order failed:', slError);
+    // Wait for the position to appear on the exchange before placing SL/TP.
+    // Gate.io rejects reduce-only orders with "REDUCE_EXCEEDED: empty position"
+    // if the position hasn't been created yet. We poll fetchPositions() with a
+    // timeout of 10 seconds.
+    let positionReady = false;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        const positions = await exchange.fetchPositions();
+        const matching = positions?.filter((p: any) =>
+          p.symbol === marketSymbol && Number(p.contracts) > 0
+        );
+        if (matching && matching.length > 0) { positionReady = true; break; }
+      } catch (_) { /* retry */ }
     }
 
-    // 3. Take Profit — limit order at the calculated TP price
+    // 2. Stop Loss — stop-limit order placed after the position exists
+    let slOrder: any = null;
+    let slError: string | null = null;
+    if (positionReady) {
+      try {
+        slOrder = await exchange.createOrder(
+          marketSymbol, 'market', slSide, quantity, undefined,
+          { stopPrice: stopLoss, stopLossPrice: stopLoss, reduceOnly: true }
+        );
+      } catch (slErr: any) {
+        slError = slErr?.message?.slice(0, 300) || 'unknown';
+        console.error('SL order failed:', slError);
+      }
+    } else {
+      slError = 'Position did not appear on exchange within 10s';
+    }
+
+    // 3. Take Profit — limit order placed after the position exists
     let tpOrder: any = null;
     let tpError: string | null = null;
-    try {
-      tpOrder = await exchange.createOrder(
-        marketSymbol, 'limit', slSide, quantity, takeProfit,
-        { reduceOnly: true }
-      );
-    } catch (tpErr: any) {
-      tpError = tpErr?.message?.slice(0, 300) || 'unknown';
-      console.error('TP order failed:', tpError);
+    if (positionReady) {
+      try {
+        tpOrder = await exchange.createOrder(
+          marketSymbol, 'limit', slSide, quantity, takeProfit,
+          { reduceOnly: true }
+        );
+      } catch (tpErr: any) {
+        tpError = tpErr?.message?.slice(0, 300) || 'unknown';
+        console.error('TP order failed:', tpError);
+      }
+    } else {
+      tpError = 'Position not ready — skipped';
     }
 
     // Compile SL/TP errors for the trade notes
