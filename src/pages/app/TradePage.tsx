@@ -225,6 +225,23 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
           <button disabled className="flex-1 py-1.5 rounded text-[11px] font-medium border border-garda-border text-garda-text-muted opacity-50 cursor-not-allowed">Max RR</button>
         </div>
 
+        {/* Direction popup — muncul setelah user pilih RR ratio */}
+        {showDirectionPopup && (
+          <div className="animate-slide-up p-3 rounded-lg border border-garda-cyan/30 bg-garda-card space-y-2">
+            <p className="text-[11px] text-garda-text-muted text-center">{t('trade.choose_direction')}</p>
+            <div className="flex gap-2">
+              <button onClick={() => handleDirectionPick('long')}
+                className="flex-1 py-2 rounded-lg font-semibold text-xs bg-garda-cyan text-[#0A0A14] hover:opacity-90 transition-opacity">
+                LONG — SL ↓ TP ↑
+              </button>
+              <button onClick={() => handleDirectionPick('short')}
+                className="flex-1 py-2 rounded-lg font-semibold text-xs bg-garda-pink text-white hover:opacity-90 transition-opacity">
+                SHORT — SL ↑ TP ↓
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Direction popup (Long/Short) — shown after RR ratio is picked */}
         {showDirectionPopup && (
           <div className="flex gap-2 animate-slide-up">
