@@ -534,13 +534,16 @@ Deno.serve(async (req: Request) => {
     // 1. Market entry order
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // Wait for the position to appear on the exchange before placing SL/TP.
-    // Gate.io rejects reduce-only orders with "REDUCE_EXCEEDED: empty position"
-    // if the position hasn't been created yet. We poll fetchPositions() with a
-    // timeout of 10 seconds.
+    // Wait briefly for the exchange to acknowledge the position.
+    // Gate.io requires the position to exist before reduceOnly SL/TP orders
+    // can be placed ("REDUCE_EXCEEDED: empty position" otherwise).
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // --- Fetch the current position from the exchange directly via raw REST.
+    // We use exchange.fetchPositions first, but that may not pick up the
+    // position fast enough. We also try to query the exchange's raw API.
     let positionReady = false;
     for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 500));
       try {
         const positions = await exchange.fetchPositions();
         const matching = positions?.filter((p: any) =>
@@ -548,33 +551,45 @@ Deno.serve(async (req: Request) => {
         );
         if (matching && matching.length > 0) { positionReady = true; break; }
       } catch (_) { /* retry */ }
+      await new Promise((r) => setTimeout(r, 1000));
     }
 
-    // 2. Stop Loss — stop-limit order placed after the position exists
+    // 2. Stop Loss — now that the position exists, place a stop-loss via
+    //    the raw Gate.io REST API to work around CCXT limitations.
     let slOrder: any = null;
     let slError: string | null = null;
     if (positionReady) {
       try {
-        slOrder = await exchange.createOrder(
-          marketSymbol, 'market', slSide, quantity, undefined,
-          { stopPrice: stopLoss, stopLossPrice: stopLoss, reduceOnly: true }
-        );
+        // Gate.io futures price_orders endpoint:
+        //   POST /api/v4/futures/usdt/price_orders
+        // We use the exchange's own sign+fetch so authentication is handled.
+        const slBody = {
+          contract: marketSymbol,        // e.g. SPCX_USDT
+          size: Number(-quantity),       // negative = short-close (buy back)
+          price: stopLoss.toString(),    // trigger price
+          tif: 'ioc',                    // immediate or cancel
+          reduce_only: true,
+          close: false,
+        };
+        const slUrl = 'https://api.gateio.ws/api/v4/futures/usdt/price_orders';
+        slOrder = await exchange.rawPost(slUrl, slBody);
+        slError = null;
       } catch (slErr: any) {
         slError = slErr?.message?.slice(0, 300) || 'unknown';
-        console.error('SL order failed:', slError);
+        console.error('SL (raw) order failed:', slError);
       }
     } else {
-      slError = 'Position did not appear on exchange within 10s';
+      slError = 'Position did not appear on exchange within 20s';
     }
 
-    // 3. Take Profit — limit order placed after the position exists
+    // 3. Take Profit — reduce-only limit order at the target price.
     let tpOrder: any = null;
     let tpError: string | null = null;
     if (positionReady) {
       try {
         tpOrder = await exchange.createOrder(
           marketSymbol, 'limit', slSide, quantity, takeProfit,
-          { reduceOnly: true }
+          { reduceOnly: true, timeInForce: 'gtc' }
         );
       } catch (tpErr: any) {
         tpError = tpErr?.message?.slice(0, 300) || 'unknown';
