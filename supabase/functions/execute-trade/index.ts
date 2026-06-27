@@ -534,72 +534,44 @@ Deno.serve(async (req: Request) => {
     // 1. Market entry order
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // Wait briefly for the exchange to acknowledge the position.
-    // Gate.io requires the position to exist before reduceOnly SL/TP orders
-    // can be placed ("REDUCE_EXCEEDED: empty position" otherwise).
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // --- Fetch the current position from the exchange directly via raw REST.
-    // We use exchange.fetchPositions first, but that may not pick up the
-    // position fast enough. We also try to query the exchange's raw API.
-    let positionReady = false;
-    for (let i = 0; i < 20; i++) {
-      try {
-        const positions = await exchange.fetchPositions();
-        const matching = positions?.filter((p: any) =>
-          p.symbol === marketSymbol && Number(p.contracts) > 0
-        );
-        if (matching && matching.length > 0) { positionReady = true; break; }
-      } catch (_) { /* retry */ }
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-
-    // 2. Stop Loss — now that the position exists, place a stop-loss via
-    //    the raw Gate.io REST API to work around CCXT limitations.
+    // 2-3.  SL+TP: Gate.io supports `price_orders` for stop-loss / take-profit
+    //     in futures.  We place two orders **after** the entry so the position
+    //     already exists (otherwise "REDUCE_EXCEEDED: empty position").
+    //     type = 'stop' tells CCXT to hit the price_orders endpoint.
     let slOrder: any = null;
     let slError: string | null = null;
-    if (positionReady) {
-      try {
-        // Gate.io futures price_orders endpoint:
-        //   POST /api/v4/futures/usdt/price_orders
-        // We use the exchange's own sign+fetch so authentication is handled.
-        const slBody = {
-          contract: marketSymbol,        // e.g. SPCX_USDT
-          size: Number(-quantity),       // negative = short-close (buy back)
-          price: stopLoss.toString(),    // trigger price
-          tif: 'ioc',                    // immediate or cancel
-          reduce_only: true,
-          close: false,
-        };
-        const slUrl = 'https://api.gateio.ws/api/v4/futures/usdt/price_orders';
-        slOrder = await exchange.rawPost(slUrl, slBody);
-        slError = null;
-      } catch (slErr: any) {
-        slError = slErr?.message?.slice(0, 300) || 'unknown';
-        console.error('SL (raw) order failed:', slError);
-      }
-    } else {
-      slError = 'Position did not appear on exchange within 20s';
+    try {
+      // Small pause so the position is visible
+      await new Promise((r) => setTimeout(r, 1500));
+      slOrder = await exchange.createOrder(
+        marketSymbol,
+        'stop',
+        slSide,
+        quantity,
+        stopLoss,                          // trigger price
+        { reduceOnly: true },
+      );
+    } catch (e: any) {
+      slError = e?.message?.slice(0, 250) || 'unknown';
+      console.error('SL (stop) order failed:', slError);
     }
 
-    // 3. Take Profit — reduce-only limit order at the target price.
     let tpOrder: any = null;
     let tpError: string | null = null;
-    if (positionReady) {
-      try {
-        tpOrder = await exchange.createOrder(
-          marketSymbol, 'limit', slSide, quantity, takeProfit,
-          { reduceOnly: true, timeInForce: 'gtc' }
-        );
-      } catch (tpErr: any) {
-        tpError = tpErr?.message?.slice(0, 300) || 'unknown';
-        console.error('TP order failed:', tpError);
-      }
-    } else {
-      tpError = 'Position not ready — skipped';
+    try {
+      tpOrder = await exchange.createOrder(
+        marketSymbol,
+        'limit',
+        slSide,
+        quantity,
+        takeProfit,
+        { reduceOnly: true, timeInForce: 'gtc' },
+      );
+    } catch (e: any) {
+      tpError = e?.message?.slice(0, 250) || 'unknown';
+      console.error('TP (limit) order failed:', tpError);
     }
 
-    // Compile SL/TP errors for the trade notes
     const sltpNote = [slError ? 'SL: ' + slError : '', tpError ? 'TP: ' + tpError : ''].filter(Boolean).join(' | ') || null;
 
     // --- SAVE TO DATABASE ---
