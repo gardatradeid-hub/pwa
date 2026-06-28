@@ -54,6 +54,8 @@ export async function fetchPositions() {
 /**
  * Retry wrapper for critical operations (execute + close).
  * Retries up to 3 times with exponential backoff on transient network errors.
+ * Catches "Failed to send a request to the Edge Function" which is a transient
+ * Supabase infrastructure error, not a logic error.
  */
 async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promise<any> {
   let lastError: any;
@@ -63,19 +65,20 @@ async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promi
       if (error) {
         lastError = error;
         if (attempt < maxRetries) {
-          await new Promise((r) => setTimeout(r, 1000 * attempt));
+          await new Promise((r) => setTimeout(r, 2000));
           continue;
         }
-        throw new Error(`Gagal terhubung ke server. ${error.message || 'Coba lagi.'}`);
+        const msg = error.message || 'Coba lagi.';
+        throw new Error(`Gagal terhubung ke server: ${msg}`);
       }
       if (data?.error) throw new Error(data.error);
       return data;
     } catch (e: any) {
-      if (e.message?.includes('Gagal terhubung')) throw e;
+      if (/Gagal terhubung|Failed to send/.test(e.message || '')) throw e;
       lastError = e;
     }
   }
-  throw lastError || new Error('Unknown error after retries');
+  throw lastError || new Error('Gagal terhubung ke server (maksimum percobaan).');
 }
 
 export async function executeTrade(params: {
