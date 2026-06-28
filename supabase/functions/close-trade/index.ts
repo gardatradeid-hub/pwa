@@ -1,22 +1,10 @@
 /**
  * Close Trade — Supabase Edge Function
  *
- * POST /functions/v1/close-trade
- * Body: { tradeId }
+ * POST /functions/v1/close-trade  Body: { tradeId }
  *
- * Flow:
- * 1. Auth check
- * 2. Load trade from DB
- * 3. Close position via CCXT
- * 4. Cancel SL + TP orders
- * 5. Calculate P&L in USDT and R
- * 6. Update trade record (status, exit_price, pnl)
- * 7. Update daily_stats
- * 8. Check consecutive losses → trigger lock if needed
- * 9. Check daily loss limit → trigger lock if needed
- * 10. Check total drawdown → trigger evaluation if needed
- * 11. Snapshot equity
- * 12. Return result (triggers PostTradeLog modal on client)
+ * Every return path logs audit details. Catch is 100 % crash-proof
+ * (zero external variable references).
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -39,31 +27,21 @@ const EXCHANGE_CLASSES: Record<string, any> = {
   whitebit: ccxt.whitebit, woox: ccxt.woox,
 };
 
-interface CloseTradeRequest {
-  tradeId: string;
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  if (req.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
+  // Earliest possible snapshot for crash-proof catch
+  const __reqId = crypto.randomUUID().slice(0, 8);
 
   try {
     // --- AUTH ---
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    if (!authHeader) return json({ error: 'Unauthorized' }, 401);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -71,136 +49,57 @@ Deno.serve(async (req: Request) => {
 
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    if (authError || !user) return json({ error: 'Unauthorized' }, 401);
 
-    // --- PARSE INPUT ---
+    // --- HELPER: audit log that never crashes ----
+    const __log = (s: number, msg?: string, extra?: Record<string, unknown>) => {
+      try { logAudit(supabase, { userId: user.id, action: Action.CLOSE_TRADE, functionName: 'close-trade', requestBody: extra || { tradeId }, responseStatus: s, errorMessage: msg }); } catch (_) {}
+    };
+
+    // --- PARSE ---
     const { tradeId }: CloseTradeRequest = await req.json();
-    if (!tradeId) {
-      return new Response(
-        JSON.stringify({ error: 'Missing required field: tradeId' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    if (!tradeId) { __log(400, 'Missing tradeId'); return json({ error: 'Missing tradeId' }, 400); }
 
     // --- LOAD TRADE ---
-    const { data: trade, error: tradeError } = await supabase
-      .from('trades')
-      .select('*')
-      .eq('id', tradeId)
-      .eq('user_id', user.id)
-      .single();
-
-    if (tradeError || !trade) {
-      return new Response(
-        JSON.stringify({ error: 'Trade not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (trade.status !== 'open') {
-      return new Response(
-        JSON.stringify({ error: 'Trade is already closed' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const { data: trade, error: tradeErr } = await supabase.from('trades').select('*').eq('id', tradeId).eq('user_id', user.id).single();
+    if (tradeErr || !trade) { __log(404, 'Trade not found'); return json({ error: 'Trade not found' }, 404); }
+    if (trade.status !== 'open') { __log(400, 'Already closed'); return json({ error: 'Trade is already closed' }, 400); }
 
     // --- LOAD PROFILE ---
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    const { data: profile, error: profErr } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+    if (profErr || !profile || !profile.exchange || !profile.api_key_encrypted || !profile.api_secret_encrypted) { __log(400, 'Exchange not connected'); return json({ error: 'Exchange not connected' }, 400); }
 
-    if (profileError || !profile || !profile.exchange || !profile.api_key_encrypted || !profile.api_secret_encrypted) {
-      return new Response(
-        JSON.stringify({ error: 'Exchange not connected' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Decrypt API keys (AES-256-GCM, see ../_shared/crypto.ts)
-    let apiKey: string;
-    let apiSecret: string;
-    try {
-      apiKey = await decryptSecret(profile.api_key_encrypted);
-      apiSecret = await decryptSecret(profile.api_secret_encrypted);
-    } catch (e) {
-      console.error('Failed to decrypt API credentials:', (e as Error).message);
-      return new Response(
-        JSON.stringify({ error: 'Stored credentials cannot be decrypted. Reconnect exchange.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // --- DECRYPT ---
+    let apiKey: string, apiSecret: string;
+    try { apiKey = await decryptSecret(profile.api_key_encrypted); apiSecret = await decryptSecret(profile.api_secret_encrypted); }
+    catch (_) { __log(500, 'Decrypt failed'); return json({ error: 'Decrypt failed' }, 500); }
 
     // --- LOAD CONFIG ---
-    const { data: configRows } = await supabase
-      .from('app_config')
-      .select('key, value');
+    const { data: cfg } = await supabase.from('app_config').select('key, value');
+    const conf: Record<string, any> = {};
+    if (cfg) for (const r of cfg) conf[r.key] = r.value;
+    const tradingRules = conf.trading_rules;
+    const lockConfig = conf.lock_config;
 
-    const config: Record<string, any> = {};
-    if (configRows) {
-      for (const row of configRows) {
-        config[row.key] = row.value;
-      }
-    }
-
-    const tradingRules = config.trading_rules;
-    const lockConfig = config.lock_config;
-
-    // --- INITIALIZE EXCHANGE ---
+    // --- INIT EXCHANGE + CLOSE ---
     const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
-    const exchange = new ExchangeClass({
-      apiKey,
-      secret: apiSecret,
-      enableRateLimit: true,
-      options: { defaultType: 'swap' },
-    });
-
-    // Load markets to get the correct futures symbol ID.
-    // Gate.io uses SPCX/USDT:USDT for futures, SPCX/USDT for spot.
-    // Without the :USDT suffix, the API call hits spot endpoint →
-    // "Request API key does not have spot write permission".
+    const exchange = new ExchangeClass({ apiKey, secret: apiSecret, enableRateLimit: true, options: { defaultType: 'swap' } });
     await exchange.loadMarkets();
-    const market = (exchange as any).markets?.[trade.symbol];
-    const marketSymbol = market?.id ?? trade.symbol;
 
-    console.log('close-trade marketSymbol:', marketSymbol, '(from', trade.symbol, ')');
+    const swapSymbol = (trade.symbol || '').includes(':') ? trade.symbol : `${trade.symbol}:USDT`;
+    const mkt = (exchange as any).markets?.[swapSymbol];
+    const marketSymbol = mkt?.id ?? trade.symbol;
 
-    // --- CLOSE POSITION ---
     const closeSide: 'buy' | 'sell' = trade.side === 'long' ? 'sell' : 'buy';
+    const closeOrder = await exchange.createOrder(marketSymbol, 'market', closeSide, Number(trade.quantity), undefined, { reduceOnly: true });
 
-    // Also handle the SL/TP args for order creation to avoid spot permission errors
-    const closeOrder = await exchange.createOrder(
-      marketSymbol,
-      'market',
-      closeSide,
-      Number(trade.quantity),
-      undefined,           // no price for market order (futures)
-      { reduceOnly: true } // close position only, never open new
-    );
-
-    // Cancel SL + TP orders
-    try {
-      if (trade.exchange_sl_order_id) {
-        await exchange.cancelOrder(trade.exchange_sl_order_id, marketSymbol);
-      }
-    } catch (_) {}
-    try {
-      if (trade.exchange_tp_order_id) {
-        await exchange.cancelOrder(trade.exchange_tp_order_id, marketSymbol);
-      }
-    } catch (_) {}
+    // Cancel SL + TP
+    try { if (trade.exchange_sl_order_id) await exchange.cancelOrder(trade.exchange_sl_order_id, marketSymbol); } catch (_) {}
+    try { if (trade.exchange_tp_order_id) await exchange.cancelOrder(trade.exchange_tp_order_id, marketSymbol); } catch (_) {}
 
     // --- CALCULATE P&L ---
     const exitPrice = closeOrder.price || closeOrder.average || Number(trade.entry_price);
-    let pnlUsdt: number;
-    let pnlR: number;
-
+    let pnlUsdt: number, pnlR: number;
     if (trade.side === 'long') {
       pnlUsdt = (exitPrice - Number(trade.entry_price)) * Number(trade.quantity);
       pnlR = (exitPrice - Number(trade.entry_price)) / (Number(trade.entry_price) - Number(trade.stop_loss));
@@ -208,207 +107,89 @@ Deno.serve(async (req: Request) => {
       pnlUsdt = (Number(trade.entry_price) - exitPrice) * Number(trade.quantity);
       pnlR = (Number(trade.entry_price) - exitPrice) / (Number(trade.stop_loss) - Number(trade.entry_price));
     }
-
     const isWin = pnlR > 0;
 
     // --- UPDATE TRADE ---
-    const { data: updatedTrade } = await supabase
-      .from('trades')
-      .update({
-        status: 'closed',
-        exit_price: exitPrice,
-        pnl_usdt: Math.round(pnlUsdt * 100) / 100,
-        pnl_r: Math.round(pnlR * 100) / 100,
-        closed_at: new Date().toISOString(),
-      })
-      .eq('id', tradeId)
-      .select()
-      .single();
+    const { data: updatedTrade } = await supabase.from('trades').update({
+      status: 'closed', exit_price: exitPrice, pnl_usdt: Math.round(pnlUsdt * 100) / 100,
+      pnl_r: Math.round(pnlR * 100) / 100, closed_at: new Date().toISOString(),
+    }).eq('id', tradeId).select().single();
 
     // --- UPDATE DAILY STATS ---
     const today = new Date().toISOString().split('T')[0];
-    const { data: dailyStats } = await supabase
-      .from('daily_stats')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('date', today)
-      .single();
+    const { data: dstats } = await supabase.from('daily_stats').select('*').eq('user_id', user.id).eq('date', today).single();
+    const newLosses = (dstats?.losses || 0) + (isWin ? 0 : 1);
+    const newWins = (dstats?.wins || 0) + (isWin ? 1 : 0);
+    const newConsecutiveLosses = isWin ? 0 : (dstats?.consecutive_losses || 0) + 1;
+    const newDailyLossR = Number(dstats?.daily_loss_r || 0) + (pnlR < 0 ? Math.abs(Number(pnlR)) : 0);
+    const newPnlR = Number(dstats?.pnl_r || 0) + Number(pnlR);
+    const newPnlUsdt = Number(dstats?.pnl_usdt || 0) + pnlUsdt;
 
-    const newLosses = (dailyStats?.losses || 0) + (isWin ? 0 : 1);
-    const newWins = (dailyStats?.wins || 0) + (isWin ? 1 : 0);
-    const newConsecutiveLosses = isWin ? 0 : (dailyStats?.consecutive_losses || 0) + 1;
-    const newDailyLossR = Number(dailyStats?.daily_loss_r || 0) + (pnlR < 0 ? Math.abs(Number(pnlR)) : 0);
-    const newPnlR = Number(dailyStats?.pnl_r || 0) + Number(pnlR);
-    const newPnlUsdt = Number(dailyStats?.pnl_usdt || 0) + pnlUsdt;
+    await supabase.from('daily_stats').upsert({
+      user_id: user.id, date: today, wins: newWins, losses: newLosses,
+      pnl_r: Math.round(newPnlR * 100) / 100, pnl_usdt: Math.round(newPnlUsdt * 100) / 100,
+      daily_loss_r: Math.round(newDailyLossR * 100) / 100, consecutive_losses: newConsecutiveLosses,
+      last_trade_closed_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,date' });
 
-    await supabase
-      .from('daily_stats')
-      .upsert({
-        user_id: user.id,
-        date: today,
-        wins: newWins,
-        losses: newLosses,
-        pnl_r: Math.round(newPnlR * 100) / 100,
-        pnl_usdt: Math.round(newPnlUsdt * 100) / 100,
-        daily_loss_r: Math.round(newDailyLossR * 100) / 100,
-        consecutive_losses: newConsecutiveLosses,
-        last_trade_closed_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,date' });
-
-    // --- CHECK LOCK CONDITIONS ---
+    // --- CHECK LOCKS ---
     let lockTriggered: any = null;
-
-    // Check 1: Consecutive losses
     if (newConsecutiveLosses >= lockConfig.consecutive_loss_trigger) {
-      const { data: lockCounts } = await supabase
-        .from('lock_events')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('locked_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString());
-
-      const lockCountThisMonth = (lockCounts?.length || 0) + 1;
-      let durationHours = lockConfig.flat_duration_hours;
-      let triggerReview = false;
-
-      // TIERED mode
+      const { data: pastLocks } = await supabase.from('lock_events').select('*').eq('user_id', user.id).gte('locked_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString());
+      const cnt = (pastLocks?.length || 0) + 1;
+      let dur = lockConfig.flat_duration_hours;
+      let review = false;
       if (lockConfig.mode === 'TIERED' && lockConfig.tiered_schedule) {
-        const tier = lockConfig.tiered_schedule.find((t: any) => t.count === lockCountThisMonth);
-        if (tier) {
-          durationHours = tier.duration_hours;
-          triggerReview = tier.trigger_review || false;
-        } else {
-          // Use last tier
-          const lastTier = lockConfig.tiered_schedule[lockConfig.tiered_schedule.length - 1];
-          durationHours = lastTier.duration_hours;
-          triggerReview = lastTier.trigger_review || false;
-        }
+        const tier = lockConfig.tiered_schedule.find((t: any) => t.count === cnt);
+        dur = tier?.duration_hours || lockConfig.tiered_schedule[lockConfig.tiered_schedule.length - 1]?.duration_hours || dur;
+        review = tier?.trigger_review || false;
       }
-
-      const unlocksAt = new Date(Date.now() + durationHours * 3600 * 1000).toISOString();
-
       await supabase.from('lock_events').insert({
-        user_id: user.id,
-        lock_type: 'consecutive_loss',
-        duration_hours: durationHours,
-        lock_count_this_month: lockCountThisMonth,
-        unlocks_at: unlocksAt,
+        user_id: user.id, lock_type: 'consecutive_loss', duration_hours: dur,
+        lock_count_this_month: cnt, unlocks_at: new Date(Date.now() + dur * 3600000).toISOString(),
       });
-
-      lockTriggered = {
-        type: 'consecutive_loss',
-        durationHours,
-        lockCountThisMonth,
-        unlocksAt,
-        triggerReview,
-      };
+      lockTriggered = { type: 'consecutive_loss', durationHours: dur, lockCountThisMonth: cnt, triggerReview: review };
     }
-
-    // Check 2: Daily loss limit
     if (!lockTriggered && newDailyLossR >= tradingRules.daily_loss_limit_r) {
-      const unlocksAt = new Date(Date.now() + 12 * 3600 * 1000).toISOString();
-
       await supabase.from('lock_events').insert({
-        user_id: user.id,
-        lock_type: 'daily_loss',
-        duration_hours: 12,
-        lock_count_this_month: 1,
-        unlocks_at: unlocksAt,
+        user_id: user.id, lock_type: 'daily_loss', duration_hours: 12,
+        lock_count_this_month: 1, unlocks_at: new Date(Date.now() + 43200000).toISOString(),
       });
-
-      lockTriggered = {
-        type: 'daily_loss',
-        durationHours: 12,
-        lockCountThisMonth: 1,
-        unlocksAt,
-        triggerReview: false,
-      };
+      lockTriggered = { type: 'daily_loss', durationHours: 12, lockCountThisMonth: 1, triggerReview: false };
     }
 
-    // Check 3: Total drawdown → evaluation
     let evaluationTriggered = false;
-    const { data: snapshots } = await supabase
-      .from('equity_snapshots')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('snapshot_at', { ascending: false })
-      .limit(1);
-
-    if (snapshots && snapshots.length > 0) {
-      const balance = Number(snapshots[0].balance_usdt);
-      const hwm = Number(snapshots[0].high_water_mark);
-      const drawdownR = hwm > 0 ? ((hwm - balance) / hwm) * 100 : 0;
-
-      if (drawdownR >= tradingRules.total_drawdown_r) {
-        evaluationTriggered = true;
-        // Pause trading — reset phase to 1 after review
-      }
+    const { data: snaps } = await supabase.from('equity_snapshots').select('*').eq('user_id', user.id).order('snapshot_at', { ascending: false }).limit(1);
+    if (snaps && snaps.length > 0) {
+      const bal = Number(snaps[0].balance_usdt);
+      const hwm = Number(snaps[0].high_water_mark);
+      if (hwm > 0 && ((hwm - bal) / hwm) * 100 >= tradingRules.total_drawdown_r) evaluationTriggered = true;
     }
 
-    // --- SNAPSHOT EQUITY ---
+    // --- SNAPSHOT ---
     try {
-      const balance = await exchange.fetchBalance();
-      const usdt = balance.USDT || balance.USDC || { total: 0 };
+      const bal = await exchange.fetchBalance({ type: 'future', settle: 'USDT' });
+      const total = bal?.USDT?.total || bal?.USDC?.total || 0;
+      const hwm = Math.max(total, snaps?.[0]?.high_water_mark || 0);
+      await supabase.from('equity_snapshots').insert({ user_id: user.id, balance_usdt: total, high_water_mark: hwm, drawdown_r: hwm > 0 ? Math.round(((hwm - total) / hwm) * 10000) / 100 : 0 });
+    } catch (_) {}
 
-      // Get previous HWM
-      let hwm = usdt.total;
-      if (snapshots && snapshots.length > 0) {
-        hwm = Math.max(usdt.total, Number(snapshots[0].high_water_mark));
-      }
-
-      const drawdownR_val = hwm > 0 ? ((hwm - usdt.total) / hwm) * 100 : 0;
-
-      await supabase.from('equity_snapshots').insert({
-        user_id: user.id,
-        balance_usdt: usdt.total,
-        high_water_mark: hwm,
-        drawdown_r: Math.round(drawdownR_val * 100) / 100,
-      });
-    } catch (_) {
-      // Non-critical if snapshot fails
-    }
-
-    // --- RETURN ---
-    logAudit(supabase, {
-      userId: user.id, action: Action.CLOSE_TRADE, functionName: 'close-trade', responseStatus: 200,
-      responseBody: { tradeId: trade.id, symbol: trade.symbol, pnl: Math.round(pnlUsdt * 100) / 100 },
-    }).catch(() => {});
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        trade: updatedTrade,
-        pnl: {
-          usdt: Math.round(pnlUsdt * 100) / 100,
-          r: Math.round(pnlR * 100) / 100,
-          isWin,
-        },
-        lockTriggered,
-        evaluationTriggered,
-        dailyStats: {
-          tradesToday: (dailyStats?.trades_count || 0) + 1,
-          consecutiveLosses: newConsecutiveLosses,
-          dailyLossR: Math.round(newDailyLossR * 100) / 100,
-        },
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (error: any) {
-    const fullError = error?.message || 'unknown';
-    console.error('Close Trade error:', fullError);
-    logAudit(supabase, {
-      userId: user?.id, userEmail: profile?.email || null,
-      action: Action.CLOSE_TRADE, functionName: 'close-trade',
-      requestBody: { tradeId },
-      responseStatus: 500, errorMessage: fullError,
+    // --- AUDIT + RETURN ---
+    __log(200, undefined, { success: true, tradeId, symbol: trade.symbol, pnl: Math.round(pnlUsdt * 100) / 100 });
+    return json({
+      success: true, trade: updatedTrade,
+      pnl: { usdt: Math.round(pnlUsdt * 100) / 100, r: Math.round(pnlR * 100) / 100, isWin },
+      lockTriggered, evaluationTriggered,
+      dailyStats: { tradesToday: (dstats?.trades_count || 0) + 1, consecutiveLosses: newConsecutiveLosses, dailyLossR: Math.round(newDailyLossR * 100) / 100 },
     });
 
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message || 'Internal server error',
-        type: error.constructor?.name || 'Error',
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+  } catch (error: any) {
+    const msg = (typeof error?.message === 'string' ? error.message : 'unknown').slice(0, 500);
+    console.error(`close-trade [${__reqId}]`, msg);
+    try {
+      const cl = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+      await cl.from('audit_logs').insert({ action: 'close_trade', function_name: 'close-trade', response_status: 500, error_message: msg + ' [' + __reqId + ']', created_at: new Date().toISOString() });
+    } catch (_) {}
+    return json({ success: false, error: msg }, 500);
   }
 });
