@@ -127,13 +127,22 @@ Deno.serve(async (req: Request) => {
     // --- BALANCE ---
     let balance = 100;
     if (snapshots && snapshots.length > 0) balance = Number(snapshots[0].balance_usdt);
-    // Try live balance (may fail for futures-only keys)
+    // Try live balance from exchange (may fail for futures-only keys like Gate.io)
     try {
       const exTemp = new (EXCHANGE_CLASSES[profile.exchange])({ apiKey, secret: apiSecret, enableRateLimit: true, options: { defaultType: 'swap' } });
       const bal = await exTemp.fetchBalance();
       const usdt = bal.USDT || bal.USDC || {};
-      if (usdt.total || usdt.free) balance = usdt.total || usdt.free;
-    } catch (_) {}
+      // Use free balance (available for trading) instead of total
+      if (usdt.free != null && usdt.free > 0) {
+        balance = Number(usdt.free);
+      } else if (usdt.total != null && usdt.total > 0) {
+        // If free is not available, take 95 % of total as available balance
+        balance = Number(usdt.total) * 0.95;
+      }
+    } catch (_) {
+      // Snapshot fallback — reduce by 5 % for safety buffer
+      balance = balance * 0.95;
+    }
 
     let drawdownR = 0;
     if (snapshots && snapshots.length > 0) {
