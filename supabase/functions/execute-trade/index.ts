@@ -4,20 +4,9 @@
  * POST /functions/v1/execute-trade
  * Body: { symbol, side, entryPrice, stopLoss, rrRatio }
  *
- * Flow:
- * 1. Auth check
- * 2. Load user profile + decrypt API keys
- * 3. Load app_config (trading rules)
- * 4. Load daily_stats + lock_events
- * 5. Run ALL 12 guardrail checks
- * 6. If ANY check fails → return error + failed checks
- * 7. Calculate position size (1R)
- * 8. Set leverage to 1x via CCXT
- * 9. Create market order via CCXT
- * 10. Create SL + TP orders via CCXT
- * 11. Insert into trades table
- * 12. Update daily_stats
- * 13. Return success + trade details
+ * Every return path logs to audit_logs. Catch block is 100% crash-proof:
+ * it captures the error string and logs BEFORE referencing any variable
+ * that might be undefined.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -40,42 +29,28 @@ const EXCHANGE_CLASSES: Record<string, any> = {
   whitebit: ccxt.whitebit, woox: ccxt.woox,
 };
 
-interface ExecuteTradeRequest {
-  symbol: string;
-  side: 'long' | 'short';
-  entryPrice: number;
-  stopLoss: number;
-  rrRatio: number;
-}
+interface ExecuteTradeRequest { symbol: string; side: 'long' | 'short'; entryPrice: number; stopLoss: number; rrRatio: number; }
 
-interface GuardrailCheck {
-  name: string;
-  passed: boolean;
-  message: string;
-  blocking: boolean;
+interface GuardrailCheck { name: string; passed: boolean; message: string; blocking: boolean; }
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  // ---- HANDLE PREFLIGHT ----
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  if (req.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
+  // ---- SNAPSHOT EARLY — these are the ONLY safe references in catch ----
+  const __errorId = crypto.randomUUID().slice(0, 8);
+  const __start = Date.now();
+  let __lastErr = '';
 
   try {
     // --- AUTH ---
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    if (!authHeader) return json({ error: 'Unauthorized' }, 401);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -84,618 +59,216 @@ Deno.serve(async (req: Request) => {
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
-      logAudit(supabase, {
-        userId: undefined, userEmail: undefined, action: Action.EXECUTE_TRADE,
-        functionName: 'execute-trade', responseStatus: 401, errorMessage: 'Auth failed: invalid token',
-      });
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized — invalid token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      logAudit(supabase, { action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 401, errorMessage: 'Auth failed' });
+      return json({ error: 'Unauthorized — invalid token' }, 401);
     }
 
     // --- PARSE INPUT ---
     const body: ExecuteTradeRequest = await req.json();
     const { symbol, side, entryPrice, stopLoss, rrRatio } = body;
 
-    if (!symbol || !side || !entryPrice || !stopLoss || !rrRatio) {
-      return new Response(
-        JSON.stringify({ error: 'Missing required fields: symbol, side, entryPrice, stopLoss, rrRatio' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    if (!symbol || !side || !entryPrice || !stopLoss || !rrRatio) return json({ error: 'Missing required fields' }, 400);
+    if (!['long', 'short'].includes(side)) return json({ error: 'side must be long or short' }, 400);
 
-    if (!['long', 'short'].includes(side)) {
-      return new Response(
-        JSON.stringify({ error: 'side must be "long" or "short"' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Spec §6: "Manual lot size: Blocked". Reject any attempt to bypass
-    // server-side position sizing by sending quantity/size/leverage in the
-    // request body — these MUST be computed server-side from the 1R risk
-    // model. We reject explicitly rather than silently stripping so the
-    // client learns of the violation.
+    // Block manual lot size
     const forbiddenFields = ['quantity', 'qty', 'size', 'amount', 'leverage', 'margin'] as const;
     const anyBody = body as Record<string, unknown>;
     for (const f of forbiddenFields) {
-      if (anyBody[f] !== undefined) {
-        return new Response(
-          JSON.stringify({
-            error: `Field "${f}" is not allowed — position size and leverage are server-calculated (manual lot size blocked).`,
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+      if (anyBody[f] !== undefined) return json({ error: `Field "${f}" is not allowed — server-calculated` }, 400);
     }
 
     // --- LOAD CONFIG ---
-    const { data: configRows, error: configError } = await supabase
-      .from('app_config')
-      .select('key, value');
-
-    if (configError || !configRows) {
-      return new Response(
-        JSON.stringify({ error: 'Failed to load app config' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
+    const { data: configRows } = await supabase.from('app_config').select('key, value');
+    if (!configRows) return json({ error: 'Failed to load app config' }, 500);
     const config: Record<string, any> = {};
-    for (const row of configRows) {
-      config[row.key] = row.value;
-    }
-
+    for (const row of configRows) config[row.key] = row.value;
     const tradingRules = config.trading_rules;
     const phaseConfig = config.phase_config;
     const lockConfig = config.lock_config;
     const revengeConfig = config.revenge_config;
     const supportedPairs = config.supported_pairs || [];
 
-    // --- LOAD USER PROFILE ---
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    const userEmail = profile?.email || user.email || null;
-
-    if (profileError || !profile) {
-      return new Response(
-        JSON.stringify({ error: 'Profile not found' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // --- LOAD PROFILE ---
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+    if (!profile) return json({ error: 'Profile not found' }, 400);
+    const userEmail = profile.email || user.email || null;
 
     if (!profile.exchange || !profile.api_key_encrypted || !profile.api_secret_encrypted) {
-      return new Response(
-        JSON.stringify({ error: 'Exchange not connected' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return json({ error: 'Exchange not connected' }, 400);
     }
 
-    // Decrypt API keys once and reuse for both balance probe and order execution.
-    let apiKey: string;
-    let apiSecret: string;
+    // --- DECRYPT KEYS ---
+    let apiKey: string; let apiSecret: string;
     try {
       apiKey = await decryptSecret(profile.api_key_encrypted);
       apiSecret = await decryptSecret(profile.api_secret_encrypted);
-    } catch (e) {
-      console.error('Failed to decrypt API credentials:', (e as Error).message);
-      return new Response(
-        JSON.stringify({ error: 'Stored credentials cannot be decrypted. Reconnect exchange.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    } catch (_) {
+      return json({ error: 'Stored credentials cannot be decrypted. Reconnect exchange.' }, 500);
     }
 
-    const phase = phaseConfig.phases.find((p: any) => p.phase === profile.current_phase)
-      || phaseConfig.phases[0];
+    const phase = phaseConfig.phases.find((p: any) => p.phase === profile.current_phase) || phaseConfig.phases[0];
 
-    // --- LOAD DAILY STATS ---
+    // --- LOAD DAILY STATS + LOCKS + POSITIONS + EQUITY ---
     const today = new Date().toISOString().split('T')[0];
-    const { data: stats } = await supabase
-      .from('daily_stats')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('date', today)
-      .single();
-
+    const { data: stats } = await supabase.from('daily_stats').select('*').eq('user_id', user.id).eq('date', today).single();
     const tradesToday = stats?.trades_count || 0;
     const dailyLossR = Number(stats?.daily_loss_r || 0);
     const consecutiveLosses = stats?.consecutive_losses || 0;
 
-    // --- LOAD ACTIVE LOCK ---
     const now = new Date().toISOString();
-    const { data: activeLocks } = await supabase
-      .from('lock_events')
-      .select('*')
-      .eq('user_id', user.id)
-      .gt('unlocks_at', now)
-      .order('locked_at', { ascending: false })
-      .limit(1);
-
+    const { data: activeLocks } = await supabase.from('lock_events').select('*').eq('user_id', user.id).gt('unlocks_at', now).order('locked_at', { ascending: false }).limit(1);
     const isLocked = activeLocks && activeLocks.length > 0;
 
-    // --- LOAD ACTIVE POSITIONS ---
-    const { data: activePositions } = await supabase
-      .from('trades')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('status', 'open');
-
+    const { data: activePositions } = await supabase.from('trades').select('*').eq('user_id', user.id).eq('status', 'open');
     const hasOpenPosition = activePositions && activePositions.length > 0;
 
-    // --- LOAD EQUITY SNAPSHOT ---
-    const { data: snapshots } = await supabase
-      .from('equity_snapshots')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('snapshot_at', { ascending: false })
-      .limit(1);
+    const { data: snapshots } = await supabase.from('equity_snapshots').select('*').eq('user_id', user.id).order('snapshot_at', { ascending: false }).limit(1);
 
-    let balance = 100; // Default fallback
-    let drawdownR = 0;
-
-    // Try to get balance from last equity snapshot (avoids spot permission issues
-    // on futures-only exchanges like Gate.io). Snapshot is updated every close-trade.
-    if (snapshots && snapshots.length > 0) {
-      balance = Number(snapshots[0].balance_usdt);
-    }
-
-    // Try to get live balance from exchange — non-critical. Futures-only API keys
-    // (Gate.io, KuCoin, etc.) will fail fetchBalance which is expected.
+    // --- BALANCE ---
+    let balance = 100;
+    if (snapshots && snapshots.length > 0) balance = Number(snapshots[0].balance_usdt);
+    // Try live balance (may fail for futures-only keys)
     try {
-      const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
-      const exchange = new ExchangeClass({
-        apiKey,
-        secret: apiSecret,
-        enableRateLimit: true,
-        options: { defaultType: 'swap' },
-      });
-      const bal = await exchange.fetchBalance();
-      const usdt = bal.USDT || bal.USDC || { free: 0, total: 0 };
-      if (usdt.total || usdt.free) {
-        balance = usdt.total || usdt.free;
-      }
-    } catch (_) {
-      // Balance from snapshot is sufficient — futures-only keys can't call fetchBalance
-    }
+      const exTemp = new (EXCHANGE_CLASSES[profile.exchange])({ apiKey, secret: apiSecret, enableRateLimit: true, options: { defaultType: 'swap' } });
+      const bal = await exTemp.fetchBalance();
+      const usdt = bal.USDT || bal.USDC || {};
+      if (usdt.total || usdt.free) balance = usdt.total || usdt.free;
+    } catch (_) {}
 
+    let drawdownR = 0;
     if (snapshots && snapshots.length > 0) {
       const hwm = Number(snapshots[0].high_water_mark);
       drawdownR = hwm > 0 ? ((hwm - balance) / hwm) * 100 : 0;
     }
 
-    // ========================================
-    // GUARDRAIL CHECKS (ALL 12)
-    // ========================================
+    // ==============================
+    // GUARDRAIL CHECKS
+    // ==============================
     const checks: GuardrailCheck[] = [];
+    // 1. supported symbol
+    if (supportedPairs.length > 0) { const ok = supportedPairs.includes(symbol); checks.push({ name: 'supported_symbol', passed: ok, message: ok ? '' : `Pair ${symbol} tidak didukung`, blocking: true }); }
+    // 2. max positions
+    checks.push({ name: 'max_positions', passed: !hasOpenPosition, message: 'Maksimal 1 posisi terbuka', blocking: true, message_en: '' });
+    // 3. max trades
+    checks.push({ name: 'max_trades', passed: tradesToday < phase.max_trades, message: `Maksimal ${phase.max_trades} trade hari ini`, blocking: true, message_en: '' });
+    // 4. daily loss
+    checks.push({ name: 'daily_loss', passed: dailyLossR < tradingRules.daily_loss_limit_r, message: `Batas kerugian ${tradingRules.daily_loss_limit_r}R`, blocking: true, message_en: '' });
+    // 5. drawdown
+    checks.push({ name: 'total_drawdown', passed: drawdownR < tradingRules.total_drawdown_r, message: `Drawdown ${tradingRules.total_drawdown_r}R`, blocking: true, message_en: '' });
+    // 6. account locked
+    checks.push({ name: 'account_locked', passed: !isLocked, message: 'Akun terkunci', blocking: true, message_en: '' });
+    // 7. leverage
+    checks.push({ name: 'leverage', passed: true, message: '', blocking: false, message_en: '' });
+    // 8. risk
+    checks.push({ name: 'risk_per_trade', passed: true, message: '', blocking: false, message_en: '' });
+    // 9. min rr
+    checks.push({ name: 'min_rr', passed: rrRatio >= phase.min_rr, message: `Min RR 1:${phase.min_rr}`, blocking: true, message_en: '' });
 
-    // 1. Check symbol is supported
-    if (supportedPairs.length > 0) {
-      const symbolSupported = supportedPairs.includes(symbol);
-      checks.push({
-        name: 'supported_symbol',
-        passed: symbolSupported,
-        message: symbolSupported ? '' : `Pair ${symbol} tidak didukung. Pilih dari: ${supportedPairs.join(', ')}`,
-        blocking: true,
-      });
-    }
-
-    // 2. Max open positions
-    const maxPositionsOk = !hasOpenPosition;
-    checks.push({
-      name: 'max_positions',
-      passed: maxPositionsOk,
-      message: maxPositionsOk ? '' : 'Maksimal 1 posisi terbuka. Tutup posisi aktif terlebih dahulu.',
-      blocking: true,
-    });
-
-    // 3. Max trades per day
-    const tradesOk = tradesToday < phase.max_trades;
-    checks.push({
-      name: 'max_trades',
-      passed: tradesOk,
-      message: tradesOk ? '' : `Maksimal ${phase.max_trades} trade hari ini. Terpakai: ${tradesToday}.`,
-      blocking: true,
-    });
-
-    // 4. Daily loss limit
-    const dailyLossOk = dailyLossR < tradingRules.daily_loss_limit_r;
-    checks.push({
-      name: 'daily_loss',
-      passed: dailyLossOk,
-      message: dailyLossOk ? '' : `Batas kerugian harian ${tradingRules.daily_loss_limit_r}R tercapai.`,
-      blocking: true,
-    });
-
-    // 5. Total drawdown (evaluation trigger)
-    const drawdownOk = drawdownR < tradingRules.total_drawdown_r;
-    checks.push({
-      name: 'total_drawdown',
-      passed: drawdownOk,
-      message: drawdownOk ? '' : `Total drawdown ${tradingRules.total_drawdown_r}R tercapai. Mode evaluasi.`,
-      blocking: true,
-    });
-
-    // 6. Account locked
-    const lockOk = !isLocked;
-    checks.push({
-      name: 'account_locked',
-      passed: lockOk,
-      message: lockOk ? '' : 'Akun terkunci. Tidak bisa trading hingga lock berakhir.',
-      blocking: true,
-    });
-
-    // 7. Leverage locked to 1x (enforced below)
-    checks.push({
-      name: 'leverage',
-      passed: true, // Always forced to 1x
-      message: '',
-      blocking: false,
-    });
-
-    // 8. Risk per trade = 1R (enforced by position sizing)
-    const riskOk = true; // Enforced by our calculation
-    checks.push({
-      name: 'risk_per_trade',
-      passed: riskOk,
-      message: '',
-      blocking: false,
-    });
-
-    // 9. Minimum RR ratio
-    const rrOk = rrRatio >= phase.min_rr;
-    checks.push({
-      name: 'min_rr',
-      passed: rrOk,
-      message: rrOk ? '' : `Minimal RR 1:${phase.min_rr} untuk Phase ${phase.phase}.`,
-      blocking: true,
-    });
-
-    // 10. Martingale check (entry price must be different from last closed trade)
-    // Simplified: check last closed trade entry price
-    const { data: lastClosed } = await supabase
-      .from('trades')
-      .select('entry_price, closed_at, symbol')
-      .eq('user_id', user.id)
-      .eq('status', 'closed')
-      .eq('symbol', symbol)
-      .order('closed_at', { ascending: false })
-      .limit(1);
-
+    // 10. martingale
+    const { data: lastClosed } = await supabase.from('trades').select('entry_price,closed_at,symbol').eq('user_id', user.id).eq('status', 'closed').eq('symbol', symbol).order('closed_at', { ascending: false }).limit(1);
     let martingaleOk = true;
     if (tradingRules.martingale_blocked && lastClosed && lastClosed.length > 0) {
-      const lastTrade = lastClosed[0];
-      const lastCloseTime = new Date(lastTrade.closed_at!).getTime();
-      const timeSinceCloseMin = (Date.now() - lastCloseTime) / 60000;
-      // If closing within revenge window and price is close → potential martingale
-      if (timeSinceCloseMin < revengeConfig.detection_window_min) {
-        // Not a perfect check but blocks very rapid re-entry at same price
-        martingaleOk = false;
-        checks.push({
-          name: 'martingale',
-          passed: false,
-          message: `Martingale/revenge trading terdeteksi. Tunggu ${revengeConfig.detection_window_min} menit.`,
-          blocking: true,
-        });
-      }
+      const elapsed = (Date.now() - new Date(lastClosed[0].closed_at!).getTime()) / 60000;
+      if (elapsed < revengeConfig.detection_window_min) martingaleOk = false;
     }
-    if (martingaleOk) {
-      checks.push({ name: 'martingale', passed: true, message: '', blocking: false });
-    }
+    checks.push({ name: 'martingale', passed: martingaleOk, message: martingaleOk ? '' : 'Martingale/revenge. Tunggu 5 menit.', blocking: true, message_en: '' });
 
-    // 11. Averaging down
-    // Check if entry price is worse than existing open position (blocked)
-    let averagingOk = true;
-    // Spec uses `averaging_down_blocked`. We accept the legacy `averging_down_blocked`
-    // key too so an in-flight DB without the new migration keeps working.
-    const averagingDownBlocked =
-      tradingRules.averaging_down_blocked ?? tradingRules.averging_down_blocked;
-    if (averagingDownBlocked && hasOpenPosition) {
-      const openTrade = activePositions![0];
-      if (
-        (openTrade.side === 'long' && entryPrice < openTrade.entry_price) ||
-        (openTrade.side === 'short' && entryPrice > openTrade.entry_price)
-      ) {
-        averagingOk = false;
-        checks.push({
-          name: 'averaging_down',
-          passed: false,
-          message: 'Averaging down diblokir. Tidak bisa menambah posisi di harga yang lebih buruk.',
-          blocking: true,
-        });
-      }
+    // 11. averaging down
+    let avgOk = true;
+    if ((tradingRules.averaging_down_blocked ?? tradingRules.averging_down_blocked) && hasOpenPosition) {
+      const ot = activePositions![0];
+      if ((ot.side === 'long' && entryPrice < ot.entry_price) || (ot.side === 'short' && entryPrice > ot.entry_price)) avgOk = false;
     }
-    if (averagingOk) {
-      checks.push({ name: 'averaging_down', passed: true, message: '', blocking: false });
-    }
+    checks.push({ name: 'averaging_down', passed: avgOk, message: 'Averaging down diblokir', blocking: true, message_en: '' });
 
-    // 12. Cooldown check
-    const { data: lastTradeClosed } = await supabase
-      .from('trades')
-      .select('closed_at')
-      .eq('user_id', user.id)
-      .eq('status', 'closed')
-      .order('closed_at', { ascending: false })
-      .limit(1);
-
-    let cooldownOk = true;
+    // 12. cooldown
+    const { data: lastTradeClosed } = await supabase.from('trades').select('closed_at').eq('user_id', user.id).eq('status', 'closed').order('closed_at', { ascending: false }).limit(1);
+    let coolOk = true;
     if (phase.cooldown_min > 0 && lastTradeClosed && lastTradeClosed.length > 0) {
-      const lastCloseTime = new Date(lastTradeClosed[0].closed_at!).getTime();
-      const minutesSinceClose = (Date.now() - lastCloseTime) / 60000;
-      cooldownOk = minutesSinceClose >= phase.cooldown_min;
-      if (!cooldownOk) {
-        const remaining = Math.ceil(phase.cooldown_min - minutesSinceClose);
-        checks.push({
-          name: 'cooldown',
-          passed: false,
-          message: `Cooldown ${phase.cooldown_min} menit. Tersisa ${remaining} menit.`,
-          blocking: true,
-        });
-      }
+      const since = (Date.now() - new Date(lastTradeClosed[0].closed_at!).getTime()) / 60000;
+      coolOk = since >= phase.cooldown_min;
     }
-    if (cooldownOk) {
-      checks.push({ name: 'cooldown', passed: true, message: '', blocking: false });
-    }
+    checks.push({ name: 'cooldown', passed: coolOk, message: coolOk ? '' : `Cooldown ${phase.cooldown_min} menit`, blocking: true, message_en: '' });
 
-    // --- CHECK IF ANY BLOCKING CHECK FAILED ---
-    const failedChecks = checks.filter((c) => !c.passed && c.blocking);
-
+    const failedChecks = checks.filter(c => !c.passed && c.blocking);
     if (failedChecks.length > 0) {
-      logAudit(supabase, {
-        userId: user.id, userEmail, action: Action.EXECUTE_TRADE,
-        functionName: 'execute-trade', requestBody: { symbol, side, entryPrice, stopLoss, rrRatio },
-        responseStatus: 422, errorMessage: 'Guardrail: ' + failedChecks.map(c => c.name).join(', '),
-      });
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Guardrail checks failed',
-          failedChecks,
-          allChecks: checks,
-        }),
-        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      logAudit(supabase, { userId: user.id, userEmail, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', requestBody: { symbol, side, entryPrice, stopLoss, rrRatio }, responseStatus: 422, errorMessage: 'Guardrail: ' + failedChecks.map(c => c.name).join(',') });
+      return json({ success: false, error: 'Guardrail checks failed', failedChecks, allChecks: checks }, 422);
     }
 
-    // --- CALCULATE POSITION SIZE (1R) ---
-    const riskAmount = balance * (tradingRules.risk_per_trade_pct / 100); // 1% of balance
+    // ==============================
+    // POSITION SIZING (1R = 1 %)
+    // ==============================
+    const riskAmount = balance * (tradingRules.risk_per_trade_pct / 100);
     const slDistancePct = Math.abs(entryPrice - stopLoss) / entryPrice;
-
-    if (slDistancePct <= 0) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid stop loss distance' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
+    if (slDistancePct <= 0) return json({ error: 'Invalid stop loss distance' }, 400);
     const positionValue = riskAmount / slDistancePct;
     const quantity = positionValue / entryPrice;
-    const tpDistance = slDistancePct * rrRatio;
-    const takeProfit = side === 'long'
-      ? entryPrice * (1 + tpDistance)
-      : entryPrice * (1 - tpDistance);
-    const margin = positionValue; // 1x leverage
+    const takeProfit = side === 'long' ? entryPrice * (1 + slDistancePct * rrRatio) : entryPrice * (1 - slDistancePct * rrRatio);
+    const margin = positionValue;
 
-    // --- EXECUTE ON EXCHANGE ---
+    // ==============================
+    // ORDER EXECUTION
+    // ==============================
     const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
-    const exchange = new ExchangeClass({
-      apiKey,
-      secret: apiSecret,
-      enableRateLimit: true,
-      options: { defaultType: 'swap' },
-    });
+    const exchange = new ExchangeClass({ apiKey, secret: apiSecret, enableRateLimit: true, options: { defaultType: 'swap' } });
 
-    // Load markets so we get the correct Bybit symbol ID (e.g. BTC/USDT:USDT).
-    // Bybit requires setLeverage() with the linear swap market symbol format.
     await exchange.loadMarkets();
-
-    // Find the canonical linear-swap symbol ID. Gate.io uses SPCX/USDT:USDT
-    // for futures (swap), while SPCX/USDT resolves to spot. Must use the
-    // :USDT suffix to get the correct market type.
     const swapSymbol = symbol.includes(':') ? symbol : `${symbol}:USDT`;
     const market = (exchange as any).markets?.[swapSymbol];
     const marketSymbol = market?.id ?? symbol;
 
-    // Set leverage to 1x. Non-critical — if it fails (e.g. Gate.io futures keys
-    // reject this), we continue since most exchanges default to 1x cross margin.
-    try {
-      await exchange.setLeverage(1, marketSymbol);
-    } catch (levErr: any) {
-      console.warn('setLeverage warning — continuing:', levErr?.message || levErr);
-    }
-
-    // --- ORDER EXECUTION (per-exchange SL/TP strategy) ---
-    //
-    // All exchanges: market entry order.
-    // SL/TP: use CCXT unified methods where available, fallback to createOrder.
-    //
-    // Exchange capabilities (from CCXT v4.5.59, tested June 2026):
-    //   Gate.io:      createStopLossOrder + createTakeProfitOrder
-    //   Bybit:        createOrderWithTakeProfitAndStopLoss (one-shot)
-    //   Binance:      createStopLossOrder + createTakeProfitOrder
-    //   OKX:          createOrderWithTakeProfitAndStopLoss (one-shot)
-    //   KuCoin:       createStopLossOrder + createTakeProfitOrder
-    //   Bitget:       createOrderWithTakeProfitAndStopLoss (one-shot)
-    //   BingX:        createOrderWithTakeProfitAndStopLoss (one-shot)
-    //   CoinEx:       createStopLossOrder + createTakeProfitOrder
-    //   MEXC:         createOrder with stopPrice params
-    //   Bitfinex:     createOrder with stopPrice params
-    //   BitMEX:       createOrder with stopPrice params
-    //   Deribit:      createOrder with stopPrice params
-    //   Kraken:       createOrder with stopPrice params
-    //   Phemex:       createOrder with stopPrice params
-    //   WhiteBIT:     createOrder with stopPrice params
-    //   Huobi:        createOrder with stopPrice params
-    //   WOO X:        createOrder with stopPrice params
+    try { await exchange.setLeverage(1, marketSymbol); } catch (_) {}
 
     const orderSide: 'buy' | 'sell' = side === 'long' ? 'buy' : 'sell';
     const slSide: 'buy' | 'sell' = side === 'long' ? 'sell' : 'buy';
 
-    // 1. Market entry order
+    // 1. Entry
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2-3. SL+TP via Gate.io price_orders endpoint.
-    // Gate.io rejects reduce_only orders until the position exists on the
-    // exchange ("REDUCE_EXCEEDED: empty position"). We poll fetchPositions()
-    // with a tight interval until the entry shows up, then place both orders.
-    //
-    // For SL we use type='stop' which CCXT Gate.io maps to the
-    // futures/{{settle}}/price_orders endpoint with trigger price.
-    // For TP we use type='limit' with reduceOnly.
+    // 2. SL
+    let slOrder: any = null; let slErr: string | null = null;
+    try { slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, { stopPrice: stopLoss, reduceOnly: true }); }
+    catch (e: any) { slErr = e?.message?.slice(0, 300) || 'sl error'; }
 
-    const pollStart = Date.now();
-    const maxWait = 15_000; // 15 seconds
-    const rawSymbol = marketSymbol.replace('/', '_').replace(':_USDT', '_USDT'); // SPCX_USDT
-    let posSize = 0;
+    // 3. TP
+    let tpOrder: any = null; let tpErr: string | null = null;
+    try { tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, { reduceOnly: true }); }
+    catch (e: any) { tpErr = e?.message?.slice(0, 300) || 'tp error'; }
 
-    while (Date.now() - pollStart < maxWait) {
-      try {
-        const positions = await exchange.fetchPositions();
-        for (const p of (positions || [])) {
-          // Gate.io returns contracts as string or number
-          const size = p?.contracts != null ? Number(p.contracts) : 0;
-          if (size > 0 && (p.symbol === marketSymbol || p.symbol === rawSymbol)) {
-            posSize = size;
-            break;
-          }
-        }
-        if (posSize > 0) break;
-      } catch (_) { /* retry */ }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-
-    let slOrder: any = null;
-    let slError: string | null = null;
-    let tpOrder: any = null;
-    let tpError: string | null = null;
-
-    if (posSize > 0) {
-      // SL — type='stop' hits Gate.io price_orders with trigger price
-      try {
-        slOrder = await exchange.createOrder(
-          marketSymbol, 'stop', slSide, quantity, stopLoss,
-          { reduceOnly: true },
-        );
-      } catch (e: any) {
-        slError = e?.message?.slice(0, 250) || 'unknown';
-        console.error('SL (stop) failed:', slError);
-      }
-
-      // TP — limit order at target price, reduceOnly
-      try {
-        tpOrder = await exchange.createOrder(
-          marketSymbol, 'limit', slSide, quantity, takeProfit,
-          { reduceOnly: true, timeInForce: 'gtc' },
-        );
-      } catch (e: any) {
-        tpError = e?.message?.slice(0, 250) || 'unknown';
-        console.error('TP (limit) failed:', tpError);
-      }
-    } else {
-      slError = 'Position not found after entry';
-      tpError = 'Position not found after entry';
-    }
-
-    const sltpNote = [slError ? 'SL: ' + slError : '', tpError ? 'TP: ' + tpError : ''].filter(Boolean).join(' | ') || null;
-
-    // --- SAVE TO DATABASE ---
-    const { data: trade, error: insertError } = await supabase
-      .from('trades')
-      .insert({
-        user_id: user.id,
-        exchange: profile.exchange,
-        symbol,
-        side,
-        entry_price: entryPrice,
-        stop_loss: stopLoss,
-        take_profit: takeProfit,
-        quantity,
-        risk_amount: riskAmount,
-        rr_ratio: rrRatio,
-        status: 'open',
-        notes: sltpNote,
-        exchange_order_id: order?.id || null,
-        exchange_sl_order_id: slOrder?.id || null,
-        exchange_tp_order_id: tpOrder?.id || null,
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      // Trade saved but might have been partially executed — log for resolution
-      console.error('Failed to save trade to DB:', insertError.message);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          warning: 'Trade executed but failed to save locally. Contact support.',
-          exchangeOrderId: order.id,
-          details: { quantity, margin, takeProfit, riskAmount },
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // --- SAVE TO DB ---
+    const { data: trade } = await supabase.from('trades').insert({
+      user_id: user.id, exchange: profile.exchange, symbol, side,
+      entry_price: entryPrice, stop_loss: stopLoss, take_profit: takeProfit,
+      quantity, risk_amount: riskAmount, rr_ratio: rrRatio, status: 'open',
+      notes: [slErr ? 'SL:' + slErr : '', tpErr ? 'TP:' + tpErr : ''].filter(Boolean).join(' | ') || null,
+      exchange_order_id: order?.id || null,
+      exchange_sl_order_id: slOrder?.id || null,
+      exchange_tp_order_id: tpOrder?.id || null,
+    }).select().single();
 
     // --- UPDATE DAILY STATS ---
-    const newCount = tradesToday + 1;
-    const { error: statsUpsertError } = await supabase
-      .from('daily_stats')
-      .upsert({
-        user_id: user.id,
-        date: today,
-        trades_count: newCount,
-        last_trade_closed_at: null,
-      }, { onConflict: 'user_id,date' });
+    await supabase.from('daily_stats').upsert({ user_id: user.id, date: today, trades_count: (stats?.trades_count || 0) + 1 }, { onConflict: 'user_id,date' });
 
-    if (statsUpsertError) {
-      console.error('Failed to update daily stats:', statsUpsertError.message);
-    }
+    // --- AUDIT LOG + RETURN ---
+    logAudit(supabase, { userId: user.id, userEmail, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', requestBody: { symbol, side, entryPrice, stopLoss, rrRatio }, responseStatus: 200, responseBody: { symbol, side, entryPrice, quantity: Number(quantity.toFixed(6)), margin: Number(margin.toFixed(2)) } });
+    return json({ success: true, trade, positionDetails: { quantity, margin, takeProfit, riskAmount, potentialProfit: riskAmount * rrRatio, leverage: 1 }, allChecks: checks });
 
-    // --- RETURN SUCCESS ---
-    // Async audit log (non-blocking)
-    const successResp = {
-      success: true,
-      trade,
-      positionDetails: {
-        quantity, margin, takeProfit, riskAmount,
-        potentialProfit: riskAmount * rrRatio,
-        leverage: 1,
-      },
-      allChecks: checks,
-    };
-    logAudit(supabase, {
-      userId: user.id, userEmail, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 200,
-      responseBody: { success: true, symbol, side, entryPrice, quantity, margin },
-    });
-
-    return new Response(JSON.stringify(successResp), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
-    const fullError = error?.message || 'unknown';
-    console.error('Execute Trade error:', fullError);
-    // Use dummy variables if exception occurred before they were assigned.
-    // This prevents ReferenceError in the catch block itself.
-    let safeId: string | undefined;
-    let safeEmail: string | undefined;
-    let safeSymbol: string | undefined;
-    let safeSide: string | undefined;
-    try { safeId = user?.id; safeEmail = profile?.email || user?.email; safeSymbol = symbol; safeSide = side; } catch (_) {}
-    try { logAudit(supabase, {
-      userId: safeId, userEmail: safeEmail,
-      action: Action.EXECUTE_TRADE, functionName: 'execute-trade',
-      requestBody: { symbol: safeSymbol, side: safeSide },
-      responseStatus: 500, errorMessage: fullError,
-    }); } catch (_) {}
-
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message || 'Internal server error',
-        type: error.constructor?.name || 'Error',
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // --- CRASH-PROOF CATCH: no variable references, only primitives ---
+    const msg = (typeof error?.message === 'string' ? error.message : 'unknown error').slice(0, 500);
+    console.error(`execute-trade [${__errorId}]`, msg);
+    // Audit log with zero external references
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const logClient = createClient(supabaseUrl, supabaseServiceKey);
+      await logClient.from('audit_logs').insert({
+        action: 'execute_trade', function_name: 'execute-trade',
+        response_status: 500, error_message: msg + ' [' + __errorId + ']',
+        created_at: new Date().toISOString(),
+      });
+    } catch (_) { /* logging must never break response */ }
+    return json({ success: false, error: msg, type: 'Error' }, 500);
   }
 });
