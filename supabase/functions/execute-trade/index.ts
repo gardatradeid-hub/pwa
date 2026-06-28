@@ -110,7 +110,7 @@ Deno.serve(async (req: Request) => {
 
     // --- LOAD DAILY STATS + LOCKS + POSITIONS + EQUITY ---
     const today = new Date().toISOString().split('T')[0];
-    const { data: stats } = await supabase.from('daily_stats').select('*').eq('user_id', user.id).eq('date', today).single();
+    const { data: stats } = await supabase.from('daily_stats').select('*').eq('user_id', user.id).eq('date', today).maybeSingle();
     const tradesToday = stats?.trades_count || 0;
     const dailyLossR = Number(stats?.daily_loss_r || 0);
     const consecutiveLosses = stats?.consecutive_losses || 0;
