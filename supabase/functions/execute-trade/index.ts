@@ -534,42 +534,66 @@ Deno.serve(async (req: Request) => {
     // 1. Market entry order
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2-3.  SL+TP: Gate.io supports `price_orders` for stop-loss / take-profit
-    //     in futures.  We place two orders **after** the entry so the position
-    //     already exists (otherwise "REDUCE_EXCEEDED: empty position").
-    //     type = 'stop' tells CCXT to hit the price_orders endpoint.
-    let slOrder: any = null;
-    let slError: string | null = null;
-    try {
-      // Small pause so the position is visible
-      await new Promise((r) => setTimeout(r, 1500));
-      slOrder = await exchange.createOrder(
-        marketSymbol,
-        'stop',
-        slSide,
-        quantity,
-        stopLoss,                          // trigger price
-        { reduceOnly: true },
-      );
-    } catch (e: any) {
-      slError = e?.message?.slice(0, 250) || 'unknown';
-      console.error('SL (stop) order failed:', slError);
+    // 2-3. SL+TP via Gate.io price_orders endpoint.
+    // Gate.io rejects reduce_only orders until the position exists on the
+    // exchange ("REDUCE_EXCEEDED: empty position"). We poll fetchPositions()
+    // with a tight interval until the entry shows up, then place both orders.
+    //
+    // For SL we use type='stop' which CCXT Gate.io maps to the
+    // futures/{{settle}}/price_orders endpoint with trigger price.
+    // For TP we use type='limit' with reduceOnly.
+
+    const pollStart = Date.now();
+    const maxWait = 15_000; // 15 seconds
+    const rawSymbol = marketSymbol.replace('/', '_').replace(':_USDT', '_USDT'); // SPCX_USDT
+    let posSize = 0;
+
+    while (Date.now() - pollStart < maxWait) {
+      try {
+        const positions = await exchange.fetchPositions();
+        for (const p of (positions || [])) {
+          // Gate.io returns contracts as string or number
+          const size = p?.contracts != null ? Number(p.contracts) : 0;
+          if (size > 0 && (p.symbol === marketSymbol || p.symbol === rawSymbol)) {
+            posSize = size;
+            break;
+          }
+        }
+        if (posSize > 0) break;
+      } catch (_) { /* retry */ }
+      await new Promise((r) => setTimeout(r, 500));
     }
 
+    let slOrder: any = null;
+    let slError: string | null = null;
     let tpOrder: any = null;
     let tpError: string | null = null;
-    try {
-      tpOrder = await exchange.createOrder(
-        marketSymbol,
-        'limit',
-        slSide,
-        quantity,
-        takeProfit,
-        { reduceOnly: true, timeInForce: 'gtc' },
-      );
-    } catch (e: any) {
-      tpError = e?.message?.slice(0, 250) || 'unknown';
-      console.error('TP (limit) order failed:', tpError);
+
+    if (posSize > 0) {
+      // SL — type='stop' hits Gate.io price_orders with trigger price
+      try {
+        slOrder = await exchange.createOrder(
+          marketSymbol, 'stop', slSide, quantity, stopLoss,
+          { reduceOnly: true },
+        );
+      } catch (e: any) {
+        slError = e?.message?.slice(0, 250) || 'unknown';
+        console.error('SL (stop) failed:', slError);
+      }
+
+      // TP — limit order at target price, reduceOnly
+      try {
+        tpOrder = await exchange.createOrder(
+          marketSymbol, 'limit', slSide, quantity, takeProfit,
+          { reduceOnly: true, timeInForce: 'gtc' },
+        );
+      } catch (e: any) {
+        tpError = e?.message?.slice(0, 250) || 'unknown';
+        console.error('TP (limit) failed:', tpError);
+      }
+    } else {
+      slError = 'Position not found after entry';
+      tpError = 'Position not found after entry';
     }
 
     const sltpNote = [slError ? 'SL: ' + slError : '', tpError ? 'TP: ' + tpError : ''].filter(Boolean).join(' | ') || null;
