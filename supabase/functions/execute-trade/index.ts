@@ -84,6 +84,10 @@ Deno.serve(async (req: Request) => {
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
+      logAudit(supabase, {
+        userId: undefined, userEmail: undefined, action: Action.EXECUTE_TRADE,
+        functionName: 'execute-trade', responseStatus: 401, errorMessage: 'Auth failed: invalid token',
+      });
       return new Response(
         JSON.stringify({ error: 'Unauthorized — invalid token' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -671,15 +675,19 @@ Deno.serve(async (req: Request) => {
   } catch (error: any) {
     const fullError = error?.message || 'unknown';
     console.error('Execute Trade error:', fullError);
-    const auditEmail = profile?.email || user?.email || null;
-    try {
-      await logAudit(supabase, {
-        userId: user?.id, userEmail: auditEmail,
-        action: Action.EXECUTE_TRADE, functionName: 'execute-trade',
-        requestBody: { symbol, side, entryPrice: entryPrice || null },
-        responseStatus: 500, errorMessage: fullError,
-      });
-    } catch (_) { /* logging must never break */ }
+    // Use dummy variables if exception occurred before they were assigned.
+    // This prevents ReferenceError in the catch block itself.
+    let safeId: string | undefined;
+    let safeEmail: string | undefined;
+    let safeSymbol: string | undefined;
+    let safeSide: string | undefined;
+    try { safeId = user?.id; safeEmail = profile?.email || user?.email; safeSymbol = symbol; safeSide = side; } catch (_) {}
+    try { logAudit(supabase, {
+      userId: safeId, userEmail: safeEmail,
+      action: Action.EXECUTE_TRADE, functionName: 'execute-trade',
+      requestBody: { symbol: safeSymbol, side: safeSide },
+      responseStatus: 500, errorMessage: fullError,
+    }); } catch (_) {}
 
     return new Response(
       JSON.stringify({
