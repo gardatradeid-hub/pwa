@@ -669,11 +669,14 @@ Deno.serve(async (req: Request) => {
 
     return new Response(JSON.stringify(successResp), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error: any) {
-    console.error('Execute Trade error:', error.message);
-    try { logAudit(supabase, {
-      userId: user?.id, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', responseStatus: 500,
-      errorMessage: error?.message || 'Unknown',
-    }); } catch (_) {}
+    const fullError = error?.message || 'unknown';
+    console.error('Execute Trade error:', fullError);
+    logAudit(supabase, {
+      userId: user?.id, userEmail: profile?.email || user?.email || null,
+      action: Action.EXECUTE_TRADE, functionName: 'execute-trade',
+      requestBody: { symbol, side, entryPrice: entryPrice || null },
+      responseStatus: 500, errorMessage: fullError,
+    });
 
     return new Response(
       JSON.stringify({

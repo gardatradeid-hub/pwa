@@ -393,13 +393,14 @@ Deno.serve(async (req: Request) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
-    console.error('Close Trade error:', error.message);
-    try {
-      await logAudit(supabase, {
-        userId: user?.id, action: Action.CLOSE_TRADE, functionName: 'close-trade', responseStatus: 500,
-        errorMessage: error?.message || 'Unknown',
-      });
-    } catch (_) {}
+    const fullError = error?.message || 'unknown';
+    console.error('Close Trade error:', fullError);
+    logAudit(supabase, {
+      userId: user?.id, userEmail: profile?.email || null,
+      action: Action.CLOSE_TRADE, functionName: 'close-trade',
+      requestBody: { tradeId },
+      responseStatus: 500, errorMessage: fullError,
+    });
 
     return new Response(
       JSON.stringify({
