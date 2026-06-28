@@ -671,12 +671,15 @@ Deno.serve(async (req: Request) => {
   } catch (error: any) {
     const fullError = error?.message || 'unknown';
     console.error('Execute Trade error:', fullError);
-    logAudit(supabase, {
-      userId: user?.id, userEmail: profile?.email || user?.email || null,
-      action: Action.EXECUTE_TRADE, functionName: 'execute-trade',
-      requestBody: { symbol, side, entryPrice: entryPrice || null },
-      responseStatus: 500, errorMessage: fullError,
-    });
+    const auditEmail = profile?.email || user?.email || null;
+    try {
+      await logAudit(supabase, {
+        userId: user?.id, userEmail: auditEmail,
+        action: Action.EXECUTE_TRADE, functionName: 'execute-trade',
+        requestBody: { symbol, side, entryPrice: entryPrice || null },
+        responseStatus: 500, errorMessage: fullError,
+      });
+    } catch (_) { /* logging must never break */ }
 
     return new Response(
       JSON.stringify({
