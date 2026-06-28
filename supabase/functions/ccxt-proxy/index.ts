@@ -130,18 +130,29 @@ Deno.serve(async (req: Request) => {
       options: { defaultType: 'swap' },
     });
 
+    // Resolve the correct futures market symbol. Gate.io uses
+    // SPCX/USDT:USDT, Bybit uses SPCX/USDT:USDT → SPCXXUSDT. Loading
+    // markets once and mapping the symbol ensures we always hit the
+    // swap endpoint, not the spot one.
+    await exchange.loadMarkets();
+    const swapSymbol = (params.symbol || '').includes(':')
+      ? params.symbol
+      : params.symbol + ':USDT';
+    const market = (exchange as any).markets?.[swapSymbol];
+    const resolvedSymbol = market?.id || market?.symbol || params.symbol;
+
     let result: any;
 
     switch (action) {
       case 'ticker': {
         if (!symbol) return new Response(JSON.stringify({ error: 'symbol required for ticker' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        const ticker = await exchange.fetchTicker(symbol);
+        const ticker = await exchange.fetchTicker(resolvedSymbol);
         result = { symbol: ticker.symbol, last: ticker.last, bid: ticker.bid, ask: ticker.ask, high: ticker.high, low: ticker.low, volume: ticker.baseVolume || ticker.volume, change: ticker.change, changePercent: ticker.percentage, timestamp: ticker.timestamp };
         break;
       }
       case 'ohlcv': {
         if (!symbol) return new Response(JSON.stringify({ error: 'symbol required for ohlcv' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        const ohlcv = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+        const ohlcv = await exchange.fetchOHLCV(resolvedSymbol, timeframe, undefined, limit);
         result = ohlcv.map((candle: number[]) => ({ time: candle[0] / 1000, open: candle[1], high: candle[2], low: candle[3], close: candle[4], volume: candle[5] }));
         break;
       }

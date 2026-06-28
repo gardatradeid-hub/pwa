@@ -1,6 +1,4 @@
 import { supabase } from '@/config/supabase';
-import { logManager } from '@/lib/LogManager';
-import { useUserStore } from '@/store/useUserStore';
 import type { TickerData, OHLCVData, ExchangeBalance } from '@/types/exchange';
 
 /**
@@ -55,63 +53,22 @@ export async function fetchPositions() {
 
 /**
  * Retry wrapper for critical operations (execute + close).
- * Supabase edge functions can occasionally fail with transient network errors
- * ("failed to send a request to the edge function"). We retry up to 3 times
- * with exponential backoff.
+ * Retries up to 3 times with exponential backoff on transient network errors.
  */
 async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promise<any> {
   let lastError: any;
-  const profile = useUserStore.getState().profile;
-  const userId = profile?.id || undefined;
-  const userEmail = profile?.email || undefined;
-
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const { data, error } = await supabase.functions.invoke(fnName, {
-        body,
-      });
+      const { data, error } = await supabase.functions.invoke(fnName, { body });
       if (error) {
         lastError = error;
-        // Network error — function was never reached
-        logManager.enqueue({
-          action: fnName === 'execute-trade' ? 'execute_trade' : 'close_trade',
-          functionName: fnName,
-          userId, userEmail,
-          requestBody: body,
-          responseStatus: 0,
-          errorMessage: `Network error (attempt ${attempt}/${maxRetries}): ${error.message}`,
-          timestamp: new Date().toISOString(),
-        });
         if (attempt < maxRetries) {
           await new Promise((r) => setTimeout(r, 1000 * attempt));
           continue;
         }
         throw new Error(`Gagal terhubung ke server. ${error.message || 'Coba lagi.'}`);
       }
-      if (data?.error) {
-        // Server-side error — function was reached but returned error
-        logManager.enqueue({
-          action: fnName === 'execute-trade' ? 'execute_trade' : 'close_trade',
-          functionName: fnName,
-          userId, userEmail,
-          requestBody: body,
-          responseStatus: 500,
-          responseBody: data,
-          errorMessage: data.error,
-          timestamp: new Date().toISOString(),
-        });
-        throw new Error(data.error);
-      }
-      // Success
-      logManager.enqueue({
-        action: fnName === 'execute-trade' ? 'execute_trade' : 'close_trade',
-        functionName: fnName,
-        userId, userEmail,
-        requestBody: body,
-        responseStatus: 200,
-        responseBody: data,
-        timestamp: new Date().toISOString(),
-      });
+      if (data?.error) throw new Error(data.error);
       return data;
     } catch (e: any) {
       if (e.message?.includes('Gagal terhubung')) throw e;
