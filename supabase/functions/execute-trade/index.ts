@@ -226,15 +226,26 @@ Deno.serve(async (req: Request) => {
     // 1. Entry
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2. SL
+    // 2. SL — stop market order. Bybit requires triggerDirection.
     let slOrder: any = null; let slErr: string | null = null;
-    try { slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, { stopPrice: stopLoss, reduceOnly: true }); }
-    catch (e: any) { slErr = e?.message?.slice(0, 300) || 'sl error'; }
+    try {
+      slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, {
+        stopPrice: stopLoss,
+        reduceOnly: true,
+        triggerDirection: side === 'long' ? 'ascending' : 'descending',
+      });
+    } catch (e: any) { slErr = e?.message?.slice(0, 300) || 'sl error'; }
 
-    // 3. TP
+    // 3. TP — reduce-only limit order. Using takeProfitPrice for exchanges
+    // that accept it. No trigger needed — this is a standing limit order
+    // that will fill when the price reaches takeProfit.
     let tpOrder: any = null; let tpErr: string | null = null;
-    try { tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, { reduceOnly: true }); }
-    catch (e: any) { tpErr = e?.message?.slice(0, 300) || 'tp error'; }
+    try {
+      tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, {
+        reduceOnly: true,
+        timeInForce: 'gtc',
+      });
+    } catch (e: any) { tpErr = e?.message?.slice(0, 300) || 'tp error'; }
 
     // --- SAVE TO DB ---
     const { data: trade } = await supabase.from('trades').insert({
