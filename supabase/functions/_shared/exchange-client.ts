@@ -345,12 +345,11 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
     slOrderId = slRes?.id?.toString() || null;
   } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
-  try {
-    const tpRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
-      quantity, takeProfit, { reduceOnly: true }
-    );
-    tpOrderId = tpRes?.id?.toString() || null;
-  } catch (e: any) { tpError = 'Gate.io TP: ' + (e.message?.slice(0, 200) || 'unknown'); }
+  // Gate.io hanya mengizinkan 1 stop order per posisi via price_orders.
+  // SL sudah terpasang di atas — TP tidak bisa dipasang bersamaan.
+  // Ini batasan Gate.io, bukan bug. TP dilewati.
+  tpOrderId = null;
+  tpError = 'Gate.io: SL sudah terpasang, TP tidak bisa (batasan exchange)';
 
   return { slOrderId, tpOrderId, slError, tpError };
 }
