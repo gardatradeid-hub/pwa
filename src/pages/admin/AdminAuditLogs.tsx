@@ -89,7 +89,7 @@ export default function AdminAuditLogs() {
                       <td className="px-3 py-2.5 font-mono-num text-[11px] text-garda-text-secondary">{log.function_name}</td>
                       <td className="px-3 py-2.5">{log.action}</td>
                       <td className="px-3 py-2.5 text-garda-text-secondary">{log.user_email || '—'}</td>
-                      <td className="px-3 py-2.5 max-w-[300px] truncate text-garda-pink">
+                      <td className="px-3 py-2.5 max-w-[500px] break-words text-garda-pink">
                         {log.error_message || <span className="text-garda-text-muted">—</span>}
                       </td>
                     </tr>

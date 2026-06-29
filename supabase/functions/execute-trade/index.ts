@@ -211,7 +211,14 @@ Deno.serve(async (req: Request) => {
     const riskAmount = balance * (tradingRules.risk_per_trade_pct / 100);
     const slDistancePct = Math.abs(entryPrice - stopLoss) / entryPrice;
     if (slDistancePct <= 0) return json({ error: 'Invalid stop loss distance' }, 400);
-    const positionValue = riskAmount / slDistancePct;
+
+    // 1R position value: riskAmount / SL%
+    const rawPositionValue = riskAmount / slDistancePct;
+    // Cap position value at 90% of balance so Bybit has room for fees + taker costs.
+    // Without this cap, a tight 1% SL with 1R risk → position = 100% balance → rejected.
+    const MAX_MARGIN_RATIO = 0.90;
+    const positionValue = Math.min(rawPositionValue, balance * MAX_MARGIN_RATIO);
+
     const quantity = positionValue / entryPrice;
     const takeProfit = side === 'long' ? entryPrice * (1 + slDistancePct * rrRatio) : entryPrice * (1 - slDistancePct * rrRatio);
     const margin = positionValue;
