@@ -223,9 +223,13 @@ Deno.serve(async (req: Request) => {
     const MAX_MARGIN_RATIO = 0.90;
     const positionValue = Math.min(rawPositionValue, effectiveBalance * MAX_MARGIN_RATIO);
 
-    const quantity = positionValue / entryPrice;
+    const rawQty = positionValue / entryPrice;
+    // Gate.io minimum order size is 1 contract. Round up for exchanges that
+    // enforce minimum qty, but ensure we don't exceed the allowed margin.
+    const qtyRounded = Math.ceil(rawQty);
+    const quantity = qtyRounded >= 1 ? qtyRounded : rawQty;
     const takeProfit = side === 'long' ? entryPrice * (1 + slDistancePct * rrRatio) : entryPrice * (1 - slDistancePct * rrRatio);
-    const margin = positionValue;
+    const margin = quantity * entryPrice;
 
     // ==============================
     // ORDER EXECUTION
