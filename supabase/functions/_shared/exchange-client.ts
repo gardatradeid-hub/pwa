@@ -340,14 +340,14 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
 
   try {
     const slRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
-      quantity, stopLoss, { reduceOnly: true }
+      quantity, stopLoss, {}
     );
     slOrderId = slRes?.id?.toString() || null;
   } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
   try {
     const tpRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
-      quantity, takeProfit, { reduceOnly: true }
+      quantity, takeProfit, {}
     );
     tpOrderId = tpRes?.id?.toString() || null;
   } catch (e: any) { tpError = 'Gate.io TP: ' + (e.message?.slice(0, 200) || 'unknown'); }
