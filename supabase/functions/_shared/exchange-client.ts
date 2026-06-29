@@ -323,9 +323,17 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   const { exchange } = creds;
   const { symbol, quantity, stopLoss, takeProfit, side } = params;
 
-  // Gate.io requires the position to exist before reduce_only SL/TP orders.
-  // We wait briefly after the entry order is placed.
-  await new Promise((r) => setTimeout(r, 3000));
+  // Gate.io needs the position visible before reduce_only orders.
+  // Poll fetchPositions() for up to 12s (the test-sign experiment confirmed
+  // that the position appears ~3s after the market order).
+  for (let i = 0; i < 12; i++) {
+    try {
+      const positions = await exchange.fetchPositions();
+      const active = positions?.filter((p: any) => Number(p.contracts) > 0);
+      if (active && active.length > 0) break;
+    } catch (_) { /* retry */ }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 
   // --- SL: stop market via CCXT createOrder type='stop' ---
   try {
