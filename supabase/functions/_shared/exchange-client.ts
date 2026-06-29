@@ -343,9 +343,9 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
     slOrderId = slRes?.id?.toString() || null;
   } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
-  // --- TP: limit order via CCXT createOrder type='limit' with reduceOnly ---
+  // --- TP：止损止盈单，使用 `price` 作为触发价格 ---
   try {
-    const tpRes = await exchange.createOrder(symbol, 'limit', side === 'long' ? 'sell' : 'buy',
+    const tpRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
       quantity, takeProfit, { reduceOnly: true }
     );
     tpOrderId = tpRes?.id?.toString() || null;
