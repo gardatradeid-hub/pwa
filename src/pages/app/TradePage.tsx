@@ -159,7 +159,7 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
 
   const handleSubmit = (side: 'long' | 'short') => {
     // Already calc'd with the correct direction — pass through
-    onExecute(side, { symbol, entryPrice: currentPrice, stopLoss, takeProfit, rrRatio, quantity, riskAmount, margin: marginUsed });
+    onExecute(side, { symbol, entryPrice: currentPrice, stopLoss, takeProfit, rrRatio, quantity, riskAmount, margin: marginUsed, qtyPct });
   };
 
   const livePnl = useMemo(() => {
@@ -350,9 +350,12 @@ export default function TradePage() {
 
   const handleAuthError = useCallback((msg: string) => { if (/unauthorized|jwt|expired|token/i.test(msg)) { addToast('error', 'Sesi Habis', 'Silakan login kembali.'); setTimeout(() => { useUserStore.getState().reset(); navigate('/login'); }, 1500); return true; } return false; }, [navigate, addToast]);
 
-  const handleExecute = async (side: 'long' | 'short', data: any) => { setError(null); setIsSubmitting(true); try { // Only send fields the server expects — NOT quantity (server-side calculated)
-    const { symbol, entryPrice, stopLoss, rrRatio } = data;
-    const result = await executeTrade({ symbol, side, entryPrice, stopLoss, rrRatio }); if (!result.success) { if (handleAuthError(result.error || '')) return; const msg = formatEdgeError(result); setError(msg); addToast('error', 'Trade Gagal', msg); return; } tradeStore.setActiveTrade(result.trade); tradeStore.setTradesToday(tradeStore.tradesToday + 1, phase.max_trades); addToast('success', 'Trade Terbuka', `${side.toUpperCase()} ${data.symbol} @ ${formatPrice(data.entryPrice)}`); } catch (e: any) { const msg = formatEdgeError(e); if (!handleAuthError(msg)) { setError(msg); addToast('error', 'Error', msg); } } finally { setIsSubmitting(false); } };
+  const handleExecute = async (side: 'long' | 'short', data: any) => { setError(null); setIsSubmitting(true); try {
+    // Pass marginPercent (qtyPct) so server uses user's selected % of balance
+    // instead of defaulting to 100% risk-based sizing.
+    const { symbol, entryPrice, stopLoss, rrRatio, qtyPct } = data;
+    const marginPercent = qtyPct || 100;
+    const result = await executeTrade({ symbol, side, entryPrice, stopLoss, rrRatio, marginPercent }); if (!result.success) { if (handleAuthError(result.error || '')) return; const msg = formatEdgeError(result); setError(msg); addToast('error', 'Trade Gagal', msg); return; } tradeStore.setActiveTrade(result.trade); tradeStore.setTradesToday(tradeStore.tradesToday + 1, phase.max_trades); addToast('success', 'Trade Terbuka', `${side.toUpperCase()} ${data.symbol} @ ${formatPrice(data.entryPrice)}`); } catch (e: any) { const msg = formatEdgeError(e); if (!handleAuthError(msg)) { setError(msg); addToast('error', 'Error', msg); } } finally { setIsSubmitting(false); } };
 
   const handleClose = async () => { if (!tradeStore.activeTrade) return; setIsSubmitting(true); setError(null); try { const result = await closeTrade(tradeStore.activeTrade.id); if (result.success) { tradeStore.setActiveTrade(null); setPositionLines(null); tradeStore.setShowPostTradeModal(true, tradeStore.activeTrade.id); addToast(result.pnl?.isWin ? 'success' : 'info', result.pnl?.isWin ? 'Trade Ditutup — Win' : 'Trade Ditutup — Loss', `PnL: ${result.pnl?.usdt?.toFixed(2) ?? '?'} USDT · ${result.pnl?.r?.toFixed(2) ?? '?'}R`); if (result.lockTriggered) { tradeStore.setIsLocked(true); setTimeout(() => navigate('/app/locked'), 1500); } if (result.evaluationTriggered) { setTimeout(() => navigate('/app/evaluation'), 1500); } } else { const msg = formatEdgeError(result); setError(msg); addToast('error', 'Gagal Tutup', msg); } } catch (e: any) { const msg = formatEdgeError(e); if (!handleAuthError(msg)) { setError(msg); addToast('error', 'Error', msg); } } finally { setIsSubmitting(false); } };
 

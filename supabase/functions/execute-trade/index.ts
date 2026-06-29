@@ -65,7 +65,8 @@ Deno.serve(async (req: Request) => {
 
     // --- PARSE INPUT ---
     const body: ExecuteTradeRequest = await req.json();
-    const { symbol, side, entryPrice, stopLoss, rrRatio } = body;
+    const { symbol, side, entryPrice, stopLoss, rrRatio, marginPercent } = body;
+    const marginPct = Math.min(100, Math.max(1, Number(marginPercent) || 100)) / 100;
 
     if (!symbol || !side || !entryPrice || !stopLoss || !rrRatio) return json({ error: 'Missing required fields' }, 400);
     if (!['long', 'short'].includes(side)) return json({ error: 'side must be long or short' }, 400);
@@ -206,18 +207,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // ==============================
-    // POSITION SIZING (1R = 1 %)
+    // POSITION SIZING
     // ==============================
-    const riskAmount = balance * (tradingRules.risk_per_trade_pct / 100);
+    // marginPct comes from the user's qtyPct slider (25/50/75/100%).
+    // 1R risk = 1% of the selected margin portion.
+    const effectiveBalance = balance * marginPct;
+    const riskAmount = effectiveBalance * (tradingRules.risk_per_trade_pct / 100);
     const slDistancePct = Math.abs(entryPrice - stopLoss) / entryPrice;
     if (slDistancePct <= 0) return json({ error: 'Invalid stop loss distance' }, 400);
 
-    // 1R position value: riskAmount / SL%
+    // Position value = riskAmount / SL%, capped at 90 % of effectiveBalance
+    // so the exchange has room for fees.
     const rawPositionValue = riskAmount / slDistancePct;
-    // Cap position value at 90% of balance so Bybit has room for fees + taker costs.
-    // Without this cap, a tight 1% SL with 1R risk → position = 100% balance → rejected.
     const MAX_MARGIN_RATIO = 0.90;
-    const positionValue = Math.min(rawPositionValue, balance * MAX_MARGIN_RATIO);
+    const positionValue = Math.min(rawPositionValue, effectiveBalance * MAX_MARGIN_RATIO);
 
     const quantity = positionValue / entryPrice;
     const takeProfit = side === 'long' ? entryPrice * (1 + slDistancePct * rrRatio) : entryPrice * (1 - slDistancePct * rrRatio);
@@ -250,7 +253,10 @@ Deno.serve(async (req: Request) => {
         reduceOnly: true,
         triggerDirection: side === 'long' ? 'ascending' : 'descending',
       });
-    } catch (e: any) { slErr = e?.message?.slice(0, 300) || 'sl error'; }
+    } catch (e: any) {
+      slErr = e?.message?.slice(0, 400) || 'sl error';
+      console.error('SL failed:', slErr);
+    }
 
     // 3. TP — reduce-only limit order. Using takeProfitPrice for exchanges
     // that accept it. No trigger needed — this is a standing limit order

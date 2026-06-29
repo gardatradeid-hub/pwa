@@ -84,6 +84,7 @@ async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promi
 export async function executeTrade(params: {
   symbol: string; side: 'long' | 'short';
   entryPrice: number; stopLoss: number; rrRatio: number;
+  marginPercent?: number;
 }): Promise<any> {
   return invokeWithRetry('execute-trade', params);
 }
