@@ -323,41 +323,24 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   const { exchange } = creds;
   const { symbol, quantity, stopLoss, takeProfit, side } = params;
 
-  // Convert "SPCX/USDT:USDT" → "SPCX_USDT" (Gate.io contract ID)
-  const contract = symbol.includes(':') ? symbol.split(':')[0].replace('/', '_') : symbol.replace('/', '_');
+  // Gate.io requires the position to exist before reduce_only SL/TP orders.
+  // We wait briefly after the entry order is placed.
+  await new Promise((r) => setTimeout(r, 3000));
 
-  // --- SL: stop market via price_orders ---
+  // --- SL: stop market via CCXT createOrder type='stop' ---
   try {
-    const slReq = exchange.sign({
-      url: '/api/v4/futures/usdt/price_orders', api: 'api', method: 'POST',
-      params: {
-        contract, size: String(side === 'long' ? -quantity : quantity),
-        price: String(stopLoss), tif: 'ioc', reduce_only: true,
-      },
-    });
-    const slResp = await (exchange as any).fetch('https://api.gateio.ws/api/v4/futures/usdt/price_orders', {
-      method: 'POST', headers: slReq.headers, body: slReq.body,
-    });
-    const slJson = exchange.safeJson(slResp);
-    slOrderId = slJson?.id?.toString() || null;
-    if (!slOrderId) slError = 'Gate.io SL: ' + JSON.stringify(slJson).slice(0, 200);
+    const slRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
+      quantity, stopLoss, { reduceOnly: true }
+    );
+    slOrderId = slRes?.id?.toString() || null;
   } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
-  // --- TP: stop market via price_orders ---
+  // --- TP: limit order via CCXT createOrder type='limit' with reduceOnly ---
   try {
-    const tpReq = exchange.sign({
-      url: '/api/v4/futures/usdt/price_orders', api: 'api', method: 'POST',
-      params: {
-        contract, size: String(side === 'long' ? -quantity : quantity),
-        price: String(takeProfit), tif: 'ioc', reduce_only: true,
-      },
-    });
-    const tpResp = await (exchange as any).fetch('https://api.gateio.ws/api/v4/futures/usdt/price_orders', {
-      method: 'POST', headers: tpReq.headers, body: tpReq.body,
-    });
-    const tpJson = exchange.safeJson(tpResp);
-    tpOrderId = tpJson?.id?.toString() || null;
-    if (!tpOrderId) tpError = 'Gate.io TP: ' + JSON.stringify(tpJson).slice(0, 200);
+    const tpRes = await exchange.createOrder(symbol, 'limit', side === 'long' ? 'sell' : 'buy',
+      quantity, takeProfit, { reduceOnly: true }
+    );
+    tpOrderId = tpRes?.id?.toString() || null;
   } catch (e: any) { tpError = 'Gate.io TP: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
   return { slOrderId, tpOrderId, slError, tpError };
