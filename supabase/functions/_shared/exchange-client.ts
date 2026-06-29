@@ -323,19 +323,21 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   const { exchange } = creds;
   const { symbol, quantity, stopLoss, takeProfit, side } = params;
 
-  // Gate.io needs the position visible before reduce_only orders.
-  // Poll fetchPositions() for up to 12s (the test-sign experiment confirmed
-  // that the position appears ~3s after the market order).
+  let slOrderId: string | null = null;
+  let slError: string | null = null;
+  let tpOrderId: string | null = null;
+  let tpError: string | null = null;
+
+  // Poll until position exists
   for (let i = 0; i < 12; i++) {
     try {
       const positions = await exchange.fetchPositions();
       const active = positions?.filter((p: any) => Number(p.contracts) > 0);
       if (active && active.length > 0) break;
-    } catch (_) { /* retry */ }
+    } catch (_) {}
     await new Promise((r) => setTimeout(r, 1000));
   }
 
-  // --- SL: stop market via CCXT createOrder type='stop' ---
   try {
     const slRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
       quantity, stopLoss, { reduceOnly: true }
@@ -343,7 +345,6 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
     slOrderId = slRes?.id?.toString() || null;
   } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
-  // --- TP：止损止盈单，使用 `price` 作为触发价格 ---
   try {
     const tpRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
       quantity, takeProfit, { reduceOnly: true }
