@@ -13,6 +13,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import ccxt from 'https://esm.sh/ccxt@4';
 import { decryptSecret } from '../_shared/crypto.ts';
 import { logAudit, Action } from '../_shared/logger.ts';
+import { placeSlAndTp } from '../_shared/exchange-client.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -245,29 +246,16 @@ Deno.serve(async (req: Request) => {
     // 1. Entry
     const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
 
-    // 2. SL — stop market order. Bybit requires triggerDirection.
-    let slOrder: any = null; let slErr: string | null = null;
-    try {
-      slOrder = await exchange.createOrder(marketSymbol, 'market', slSide, quantity, undefined, {
-        stopPrice: stopLoss,
-        reduceOnly: true,
-        triggerDirection: side === 'long' ? 'ascending' : 'descending',
-      });
-    } catch (e: any) {
-      slErr = e?.message?.slice(0, 400) || 'sl error';
-      console.error('SL failed:', slErr);
-    }
-
-    // 3. TP — reduce-only limit order. Using takeProfitPrice for exchanges
-    // that accept it. No trigger needed — this is a standing limit order
-    // that will fill when the price reaches takeProfit.
-    let tpOrder: any = null; let tpErr: string | null = null;
-    try {
-      tpOrder = await exchange.createOrder(marketSymbol, 'limit', slSide, quantity, takeProfit, {
-        reduceOnly: true,
-        timeInForce: 'gtc',
-      });
-    } catch (e: any) { tpErr = e?.message?.slice(0, 300) || 'tp error'; }
+    // 2. SL + TP via native REST (hybrid — bypasses CCXT for SL/TP)
+    const sltp = await placeSlAndTp(
+      { apiKey, apiSecret, exchange },
+      profile.exchange,
+      { symbol: marketSymbol, quantity, stopLoss, takeProfit, side },
+    );
+    const slOrder: any = sltp.slOrderId ? { id: sltp.slOrderId } : null;
+    const tpOrder: any = sltp.tpOrderId ? { id: sltp.tpOrderId } : null;
+    const slErr = sltp.slError;
+    const tpErr = sltp.tpError;
 
     // --- SAVE TO DB ---
     const { data: trade } = await supabase.from('trades').insert({

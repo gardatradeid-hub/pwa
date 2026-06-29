@@ -49,8 +49,14 @@ const EXCHANGE_KEY_PATTERNS: [RegExp, string][] = [
   [/total.*drawdown/i, 'Total drawdown sudah mencapai batas. Anda masuk mode evaluasi.'],
   [/account.*lock/i, 'Akun Anda sedang terkunci. Buka halaman Lock untuk detail.'],
   [/akun.*terkunci/i, 'Akun Anda sedang terkunci. Buka halaman Lock untuk detail.'],
-  [/cooldown.*active|cooldown.*aktif/i, 'Anda sedang dalam cooldown. Tunggu hingga waktu cooldown selesai.'],
+  [/cooldown.*aktif/i, 'Anda sedang dalam cooldown. Tunggu hingga waktu cooldown selesai.'],
   [/min.*rr|minimal.*rr/i, 'RR ratio terlalu rendah untuk phase Anda saat ini. Pilih ratio yang lebih tinggi.'],
+  [/Cooldown \d+ menit/i, 'Anda sedang dalam masa cooldown. Silakan tunggu hingga cooldown selesai.'],
+  [/Martingale|revenge.*terdeteksi/i, 'Revenge trading terdeteksi. Tunggu beberapa menit sebelum trading lagi.'],
+
+  // Guardrail message translations
+  [/Cooldown \d+ menit\. Tersisa \d+ menit/i, 'cooldown_remaining'],
+  [/Martingale\/revenge trading terdeteksi/i, 'revenge_detected'],
   [/martingale|revenge.*trading.*terdeteksi/i, 'Revenge trading terdeteksi. Tunggu beberapa menit sebelum trading lagi.'],
   [/averaging.*down.*block.*|averaging.*down.*diblokir/i, 'Averaging down tidak diizinkan. Jangan membuka posisi di harga yang lebih buruk.'],
   [/unsupported.*symbol.*tidak.*didukung/i, 'Pair ini tidak didukung. Pilih pair dari daftar yang tersedia.'],

@@ -63,6 +63,7 @@ async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promi
     try {
       const { data, error } = await supabase.functions.invoke(fnName, { body });
       if (error) {
+        // Network error — function never reached
         lastError = error;
         if (attempt < maxRetries) {
           await new Promise((r) => setTimeout(r, 2000));
@@ -71,7 +72,15 @@ async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promi
         const msg = error.message || 'Coba lagi.';
         throw new Error(`Gagal terhubung ke server: ${msg}`);
       }
-      if (data?.error) throw new Error(data.error);
+      // Server-side error (guardrail, exchange, etc.) — throw the actual message
+      if (data?.error) {
+        // Include failedChecks messages if present (guardrail errors)
+        const guardMsgs = data.failedChecks
+          ?.map((c: any) => c.message || c.message_en)
+          ?.filter(Boolean)
+          ?.join('; ');
+        throw new Error(guardMsgs || data.error);
+      }
       return data;
     } catch (e: any) {
       if (/Gagal terhubung|Failed to send/.test(e.message || '')) throw e;
