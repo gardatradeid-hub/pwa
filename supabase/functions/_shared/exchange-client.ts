@@ -323,63 +323,38 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   const { exchange } = creds;
   const { symbol, quantity, stopLoss, takeProfit, side } = params;
 
-  let slOrderId: string | null = null;
-  let slError: string | null = null;
-  let tpOrderId: string | null = null;
-  let tpError: string | null = null;
-
   // Convert "SPCX/USDT:USDT" → "SPCX_USDT" (Gate.io contract ID)
   const contract = symbol.includes(':') ? symbol.split(':')[0].replace('/', '_') : symbol.replace('/', '_');
 
-  // Price-orders endpoint for USDT-margined futures
-  const priceOrdersUrl = '/api/v4/futures/usdt/price_orders';
-
-  // Gate.io size: negative for short-close (sell)
-  const closeSize = String(side === 'long' ? -quantity : quantity);
-
   // --- SL: stop market via price_orders ---
   try {
-    const slBody = {
-      contract,
-      size: closeSize,
-      price: String(stopLoss),
-      tif: 'ioc',
-      reduce_only: true,
-    };
-    const signed = exchange.sign(priceOrdersUrl, 'api', 'POST', slBody);
-    const resp = await fetch('https://api.gateio.ws' + priceOrdersUrl, {
-      method: 'POST', headers: signed.headers, body: JSON.stringify(slBody),
+    const slReq = exchange.sign('/api/v4/futures/usdt/price_orders', 'api', 'POST', {
+      contract, size: String(side === 'long' ? -quantity : quantity),
+      price: String(stopLoss), tif: 'ioc', reduce_only: true,
+    }, {}, '');
+    const slResp = await (exchange as any).fetch('https://api.gateio.ws/api/v4/futures/usdt/price_orders', {
+      method: 'POST', headers: slReq.headers, body: slReq.body,
     });
-    if (resp.ok) {
-      const json = await resp.json();
-      slOrderId = json?.id?.toString() || null;
-    } else {
-      const err = await resp.text();
-      slError = `Gate.io SL (${resp.status}): ${err.slice(0, 200)}`;
-    }
-  } catch (e: any) { slError = `Gate.io SL: ${e.message?.slice(0, 200)}`; }
+    const slJson = exchange.safeJson(slResp);
+    let tempSlId: string | null = slJson?.id?.toString() || null;
+    slOrderId = tempSlId;
+    if (!tempSlId) slError = 'Gate.io SL: ' + JSON.stringify(slJson).slice(0, 200);
+  } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
   // --- TP: stop market via price_orders ---
   try {
-    const tpBody = {
-      contract,
-      size: closeSize,
-      price: String(takeProfit),
-      tif: 'ioc',
-      reduce_only: true,
-    };
-    const signed = exchange.sign(priceOrdersUrl, 'api', 'POST', tpBody);
-    const resp = await fetch('https://api.gateio.ws' + priceOrdersUrl, {
-      method: 'POST', headers: signed.headers, body: JSON.stringify(tpBody),
+    const tpReq = exchange.sign('/api/v4/futures/usdt/price_orders', 'api', 'POST', {
+      contract, size: String(side === 'long' ? -quantity : quantity),
+      price: String(takeProfit), tif: 'ioc', reduce_only: true,
+    }, {}, '');
+    const tpResp = await (exchange as any).fetch('https://api.gateio.ws/api/v4/futures/usdt/price_orders', {
+      method: 'POST', headers: tpReq.headers, body: tpReq.body,
     });
-    if (resp.ok) {
-      const json = await resp.json();
-      tpOrderId = json?.id?.toString() || null;
-    } else {
-      const err = await resp.text();
-      tpError = `Gate.io TP (${resp.status}): ${err.slice(0, 200)}`;
-    }
-  } catch (e: any) { tpError = `Gate.io TP: ${e.message?.slice(0, 200)}`; }
+    const tpJson = exchange.safeJson(tpResp);
+    let tempTpId: string | null = tpJson?.id?.toString() || null;
+    tpOrderId = tempTpId;
+    if (!tempTpId) tpError = 'Gate.io TP: ' + JSON.stringify(tpJson).slice(0, 200);
+  } catch (e: any) { tpError = 'Gate.io TP: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
   return { slOrderId, tpOrderId, slError, tpError };
 }
