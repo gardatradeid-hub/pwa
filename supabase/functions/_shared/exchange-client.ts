@@ -320,7 +320,7 @@ async function placeSlTpKuCoin(creds: ExchangeCredentials, params: SlTpParams): 
 // auto-fills as market when the trigger price is reached.
 
 async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): Promise<SlTpResult> {
-  const { exchange, apiKey, apiSecret } = creds;
+  const { exchange } = creds;
   const { symbol, quantity, stopLoss, takeProfit, side } = params;
 
   let slOrderId: string | null = null;
@@ -328,121 +328,27 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   let tpOrderId: string | null = null;
   let tpError: string | null = null;
 
-  // Konversi "SPCX/USDT:USDT" → "SPCX_USDT" (Gate.io contract ID)
-  const contract = symbol.includes(':') ? symbol.split(':')[0].replace('/', '_') : symbol.replace('/', '_');
+  // Gate.io CCXT params: trigger_price_type=2 uses MARK price (prevents
+  // immediate fill), and 'stop' order type maps to price_orders internally.
+  // We place SL+TP here. If Gate.io rejects the second order, we log it.
 
-  /**
-   * Helper: panggil native Gate.io REST API untuk pasang SL atau TP.
-   *
-   * Gate.io docs: POST /api/v4/futures/usdt/price_orders
-   * Body: { contract, size, price, tif, reduce_only, close, trigger_price_type }
-   *
-   * trigger_price_type: 1=last_price (default), 2=mark_price, 3=index_price.
-   * Menggunakan mark_price (2) mencegah order langsung dieksekusi.
-   */
-  /**
-   * Kirim price_order ke Gate.io dengan otentikasi HMAC-SHA512.
-   * Ini SEPENUHNYA melewati CCXT — membangun header auth secara manual
-   * sesuai dokumentasi Gate.io API v4.
-   */
-  async function gateioPriceOrder(triggerPrice: number): Promise<string | null> {
-    const closeSize = side === 'long' ? -quantity : quantity;
+  try {
+    const slRes = await exchange.createOrder(symbol, 'stop',
+      side === 'long' ? 'sell' : 'buy',
+      quantity, stopLoss,
+      { reduceOnly: true, trigger_price_type: 2 }
+    );
+    slOrderId = slRes?.id?.toString() || null;
+  } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
-    // Gate.io HMAC-SHA512 auth
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const bodyStr = JSON.stringify({
-      contract,
-      size: String(closeSize),
-      price: String(triggerPrice),
-      tif: 'gtc',
-      reduce_only: true,
-      close: false,
-      trigger_price_type: 2,
-    });
-    const hashedBody = await crypto.subtle.digest('SHA-512', new TextEncoder().encode(bodyStr));
-    const bodyHash = Array.from(new Uint8Array(hashedBody)).map(b => b.toString(16).padStart(2, '0')).join('');
-    const method = 'POST';
-    const requestPath = '/api/v4/futures/usdt/price_orders';
-    const payload = `${method}
-${requestPath}
-
-${bodyHash}
-${timestamp}`;
-
-    // Encode secret as UTF-8, sign with HMAC-SHA512
-    const enc = new TextEncoder();
-    const key = await crypto.subtle.importKey('raw', enc.encode(apiSecret), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
-    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
-    const sigHex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-    const response = await fetch('https://api.gateio.ws' + requestPath, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'KEY': apiKey,
-        'SIGN': sigHex,
-        'Timestamp': timestamp,
-      },
-      body: bodyStr,
-    });
-    const json = await response.json();
-
-    // Gate.io selalu return 200 — cek apakah error atau success
-    if (json?.label) {
-      // Error response: { label: "ERR_CODE", message: "..." }
-      console.error(`Gate.io price_order error [${json.label}]: ${json.message}`);
-      return null;
-    }
-
-    // Success response: { id: 123456, ... }
-    const id = json?.id?.toString() || json?.order_id?.toString()
-            || json?.data?.id?.toString() || json?.result?.id?.toString() || null;
-    if (id) return id;
-
-    // Unexpected success format — log full body
-    console.warn(`Gate.io price_order OK tapi tanpa ID dikenal: ${JSON.stringify(json).slice(0, 500)}`);
-    return null;
-  }
-
-  // Tunggu posisi muncul (maks 22 detik)
-  let posFound = false;
-  for (let i = 0; i < 15; i++) {
-    try {
-      const positions = await exchange.fetchPositions();
-      const active = positions?.filter((p: any) => Number(p.contracts) > 0);
-      if (active && active.length > 0) { posFound = true; break; }
-    } catch (_) {}
-    await new Promise((r) => setTimeout(r, 1500));
-  }
-
-  if (!posFound) {
-    slError = 'Gate.io SL/TP: posisi tidak muncul setelah 22 detik';
-    tpError = 'Gate.io SL/TP: posisi tidak muncul setelah 22 detik';
-  } else {
-    /**
-     * Setelah posisi muncul, pasang SL dan TP.
-     *
-     * Gate.io HANYA mendukung 1 price_order per posisi. Jadi:
-     *   - Pasang SL sebagai price_order.
-     *   - TP diskip — tidak bisa 2 price_orders bersamaan.
-     */
-    // Pasang SL
-    try {
-      const slId = await gateioPriceOrder(stopLoss);
-      if (slId) {
-        slOrderId = slId;
-      } else {
-        slError = 'Gate.io SL: gagal dipasang (response tidak memiliki id)';
-      }
-    } catch (e: any) {
-      slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown');
-    }
-
-    // Gate.io batasi 1 price_order per posisi. TP tidak bisa bersamaan dengan SL.
-    tpOrderId = null;
-    tpError = 'Gate.io: hanya 1 price_order per posisi — SL sudah terpasang';
-  }
+  try {
+    const tpRes = await exchange.createOrder(symbol, 'stop',
+      side === 'long' ? 'sell' : 'buy',
+      quantity, takeProfit,
+      { reduceOnly: true, trigger_price_type: 2 }
+    );
+    tpOrderId = tpRes?.id?.toString() || null;
+  } catch (e: any) { tpError = 'Gate.io TP: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
   return { slOrderId, tpOrderId, slError, tpError };
 }
