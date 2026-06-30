@@ -388,15 +388,20 @@ ${timestamp}`;
     });
     const json = await response.json();
 
-    if (response.ok) {
-      // Gate.io returns { id: 123456 } for successful price orders
-      const id = json?.id?.toString() || json?.order_id?.toString() || null;
-      if (id) return id;
-      // Log full response for debugging when ID is missing
-      console.warn(`Gate.io price_order OK tapi tanpa ID: ${JSON.stringify(json).slice(0, 500)}`);
+    // Gate.io selalu return 200 — cek apakah error atau success
+    if (json?.label) {
+      // Error response: { label: "ERR_CODE", message: "..." }
+      console.error(`Gate.io price_order error [${json.label}]: ${json.message}`);
       return null;
     }
-    console.error(`Gate.io price_order gagal (${response.status}): ${JSON.stringify(json).slice(0, 500)}`);
+
+    // Success response: { id: 123456, ... }
+    const id = json?.id?.toString() || json?.order_id?.toString()
+            || json?.data?.id?.toString() || json?.result?.id?.toString() || null;
+    if (id) return id;
+
+    // Unexpected success format — log full body
+    console.warn(`Gate.io price_order OK tapi tanpa ID dikenal: ${JSON.stringify(json).slice(0, 500)}`);
     return null;
   }
 
