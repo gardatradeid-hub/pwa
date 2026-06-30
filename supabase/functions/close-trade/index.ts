@@ -27,6 +27,8 @@ const EXCHANGE_CLASSES: Record<string, any> = {
   whitebit: ccxt.whitebit, woox: ccxt.woox,
 };
 
+interface CloseTradeRequest { tradeId: string; }
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
@@ -97,8 +99,27 @@ Deno.serve(async (req: Request) => {
     try { if (trade.exchange_sl_order_id) await exchange.cancelOrder(trade.exchange_sl_order_id, marketSymbol); } catch (_) {}
     try { if (trade.exchange_tp_order_id) await exchange.cancelOrder(trade.exchange_tp_order_id, marketSymbol); } catch (_) {}
 
-    // --- CALCULATE P&L ---
-    const exitPrice = closeOrder.price || closeOrder.average || Number(trade.entry_price);
+    // --- RESOLVE EXIT PRICE ---
+    // CCXT market-order response often has null .price/.average until the fill
+    // settles. Re-fetch the order to get the average fill price; fall back to
+    // ticker last, and only then to entry_price (which would record P&L = 0).
+    let exitPrice = Number(closeOrder.average ?? closeOrder.price ?? 0);
+    if (!exitPrice && closeOrder.id) {
+      for (let i = 0; i < 5 && !exitPrice; i++) {
+        await new Promise(r => setTimeout(r, 600));
+        try {
+          const o = await exchange.fetchOrder(closeOrder.id, marketSymbol);
+          exitPrice = Number(o?.average ?? o?.price ?? 0);
+        } catch (_) {}
+      }
+    }
+    if (!exitPrice) {
+      try {
+        const ticker = await exchange.fetchTicker(marketSymbol);
+        exitPrice = Number(ticker?.last ?? ticker?.close ?? 0);
+      } catch (_) {}
+    }
+    if (!exitPrice) exitPrice = Number(trade.entry_price);
     let pnlUsdt: number, pnlR: number;
     if (trade.side === 'long') {
       pnlUsdt = (exitPrice - Number(trade.entry_price)) * Number(trade.quantity);
@@ -117,7 +138,8 @@ Deno.serve(async (req: Request) => {
 
     // --- UPDATE DAILY STATS ---
     const today = new Date().toISOString().split('T')[0];
-    const { data: dstats } = await supabase.from('daily_stats').select('*').eq('user_id', user.id).eq('date', today).single();
+    // .maybeSingle() — first close of the day may have no row yet (PGRST116 guard)
+    const { data: dstats } = await supabase.from('daily_stats').select('*').eq('user_id', user.id).eq('date', today).maybeSingle();
     const newLosses = (dstats?.losses || 0) + (isWin ? 0 : 1);
     const newWins = (dstats?.wins || 0) + (isWin ? 1 : 0);
     const newConsecutiveLosses = isWin ? 0 : (dstats?.consecutive_losses || 0) + 1;
@@ -167,9 +189,18 @@ Deno.serve(async (req: Request) => {
     }
 
     // --- SNAPSHOT ---
+    // Exchange has defaultType:'swap' from constructor, so fetchBalance() without
+    // params returns the futures wallet for Bybit/OKX/Gate/etc. Binance-style
+    // {type:'future'} fallback only fires if the default lookup returns zero.
     try {
-      const bal = await exchange.fetchBalance({ type: 'future', settle: 'USDT' });
-      const total = bal?.USDT?.total || bal?.USDC?.total || 0;
+      let bal = await exchange.fetchBalance();
+      let total = bal?.USDT?.total || bal?.USDC?.total || 0;
+      if (!total) {
+        try {
+          bal = await exchange.fetchBalance({ type: 'future', settle: 'USDT' });
+          total = bal?.USDT?.total || bal?.USDC?.total || 0;
+        } catch (_) {}
+      }
       const hwm = Math.max(total, snaps?.[0]?.high_water_mark || 0);
       await supabase.from('equity_snapshots').insert({ user_id: user.id, balance_usdt: total, high_water_mark: hwm, drawdown_r: hwm > 0 ? Math.round(((hwm - total) / hwm) * 10000) / 100 : 0 });
     } catch (_) {}
