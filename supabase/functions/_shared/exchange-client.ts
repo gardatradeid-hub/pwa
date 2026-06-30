@@ -342,12 +342,17 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   if (!posFound) {
     slError = 'Gate.io SL: posisi tidak muncul setelah 22 detik';
   } else {
-    try {
-      const slRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
-        quantity, stopLoss, { reduceOnly: true }
-      );
-      slOrderId = slRes?.id?.toString() || null;
-    } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
+    // GATE.IO SL DISABLED:
+    // Every attempt to place a stop order on Gate.io via CCXT results in
+    // immediate execution (entry + close at the same price), losing money.
+    // This is because Gate.io interprets the stop price as a market trigger
+    // that fires instantly when the position is new and the mark price is
+    // very close to the trigger.
+    //
+    // Until a reliable Gate.io SL implementation is found, SL is SKIPPED
+    // for safety. Users must set SL manually on the Gate.io app.
+    slOrderId = null;
+    slError = 'Gate.io SL: skipped (unreliable — SL triggers immediately)';
   }
 
   // Gate.io hanya mengizinkan 1 stop order per posisi via price_orders.
