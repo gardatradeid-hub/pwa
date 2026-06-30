@@ -328,22 +328,27 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   let tpOrderId: string | null = null;
   let tpError: string | null = null;
 
-  // Poll until position exists
-  for (let i = 0; i < 12; i++) {
+  // Poll until position exists (max 15 detik)
+  let posFound = false;
+  for (let i = 0; i < 15; i++) {
     try {
       const positions = await exchange.fetchPositions();
       const active = positions?.filter((p: any) => Number(p.contracts) > 0);
-      if (active && active.length > 0) break;
+      if (active && active.length > 0) { posFound = true; break; }
     } catch (_) {}
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1500));
   }
 
-  try {
-    const slRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
-      quantity, stopLoss, { reduceOnly: true }
-    );
-    slOrderId = slRes?.id?.toString() || null;
-  } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
+  if (!posFound) {
+    slError = 'Gate.io SL: posisi tidak muncul setelah 22 detik';
+  } else {
+    try {
+      const slRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
+        quantity, stopLoss, { reduceOnly: true }
+      );
+      slOrderId = slRes?.id?.toString() || null;
+    } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
+  }
 
   // Gate.io hanya mengizinkan 1 stop order per posisi via price_orders.
   // SL sudah terpasang di atas — TP tidak bisa dipasang bersamaan.
