@@ -37,6 +37,8 @@ export interface SlTpParams {
   stopLoss: number;      // trigger price for SL
   takeProfit: number;    // limit price for TP
   side: 'long' | 'short';
+  /** Bybit only: 0=one-way (default), 1=hedge long, 2=hedge short */
+  positionIdx?: number;
 }
 
 export interface SlTpResult {
@@ -54,9 +56,8 @@ export interface SlTpResult {
 // SL trigger requires triggerDirection + triggerBy
 
 async function placeSlTpBybit(creds: ExchangeCredentials, params: SlTpParams): Promise<SlTpResult> {
-  const { exchange, apiKey, apiSecret } = creds;
-  const { symbol, quantity, stopLoss, takeProfit, side } = params;
-  const closeOn = 'CloseOnly';
+  const { exchange } = creds;
+  const { symbol, quantity, stopLoss, takeProfit, side, positionIdx = 0 } = params;
 
   let slOrderId: string | null = null;
   let slError: string | null = null;
@@ -65,7 +66,7 @@ async function placeSlTpBybit(creds: ExchangeCredentials, params: SlTpParams): P
 
   // --- SL: stop market, reduceOnly, triggerDirection ---
   try {
-    const slBody = {
+    const slBody: Record<string, any> = {
       category: 'linear',
       symbol: symbol,
       side: side === 'long' ? 'Sell' : 'Buy',
@@ -76,6 +77,7 @@ async function placeSlTpBybit(creds: ExchangeCredentials, params: SlTpParams): P
       triggerBy: 'MarkPrice',
       timeInForce: 'IOC',
       reduceOnly: true,
+      positionIdx: positionIdx,                            // 0=one-way, 1=hedge long, 2=hedge short
     };
     const slUrl = '/v5/order/create';
     const signed = exchange.sign(slUrl, 'private', 'POST', slBody);
@@ -89,7 +91,7 @@ async function placeSlTpBybit(creds: ExchangeCredentials, params: SlTpParams): P
 
   // --- TP: limit, reduceOnly ---
   try {
-    const tpBody = {
+    const tpBody: Record<string, any> = {
       category: 'linear',
       symbol: symbol,
       side: side === 'long' ? 'Sell' : 'Buy',
@@ -98,6 +100,7 @@ async function placeSlTpBybit(creds: ExchangeCredentials, params: SlTpParams): P
       price: String(takeProfit),
       timeInForce: 'GTC',
       reduceOnly: true,
+      positionIdx: positionIdx,
     };
     const tpUrl = '/v5/order/create';
     const signed = exchange.sign(tpUrl, 'private', 'POST', tpBody);
@@ -310,14 +313,41 @@ async function placeSlTpKuCoin(creds: ExchangeCredentials, params: SlTpParams): 
 }
 
 // ================================================================
-// GATE.IO — Perpetual Futures REST API
+// GATE.IO — Perpetual Futures REST API (Native, hybrid pattern like Bybit)
 // ================================================================
-// Docs: https://www.gate.io/docs/developers/apiv4/en/#gate-io-futures-api
+// Docs: https://www.gate.io/docs/developers/apiv4/en/#create-a-price-triggered-order
 // Endpoint: POST /api/v4/futures/usdt/price_orders
 //
-// Gate.io futures uses a SEPARATE endpoint for stop-loss/take-profit
-// called "price_orders". This endpoint creates a trigger order that
-// auto-fills as market when the trigger price is reached.
+// Body schema (from official gateapi-python SDK):
+//   {
+//     initial: {
+//       contract: "BTC_USDT",                     // market id
+//       size: 0,                                  // 0 = full close (used with auto_size)
+//       price: "0",                               // "0" = market on trigger
+//       tif: "ioc",                               // market orders must use ioc
+//       reduce_only: true,
+//       auto_size: "close_long" | "close_short",  // dual-position mode only
+//       text: "api"
+//     },
+//     trigger: {
+//       strategy_type: 0,                         // 0 = price trigger
+//       price_type: 1,                            // 1 = MARK price (anti-wick)
+//       price: "<trigger price>",
+//       rule: 1 | 2,                              // 1: price >= trigger, 2: price <= trigger
+//       expiration: 604800                        // seconds (7 days)
+//     }
+//   }
+//
+// Rule cheatsheet:
+//   long  SL: trigger when price falls below stopLoss   -> rule=2 (price <= trigger)
+//   short SL: trigger when price rises above stopLoss   -> rule=1 (price >= trigger)
+//   long  TP: trigger when price rises above takeProfit -> rule=1
+//   short TP: trigger when price falls below takeProfit -> rule=2
+//
+// We use exchange.sign() positional args (path, api[], method, params) so
+// CCXT handles HMAC-SHA512 + body hashing + the 5-line payload format.
+// Crucially: pass the body as `params` (a dict). sign() will JSON-stringify
+// it internally — passing a pre-stringified body produces the wrong hash.
 
 async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): Promise<SlTpResult> {
   const { exchange } = creds;
@@ -328,26 +358,115 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   let tpOrderId: string | null = null;
   let tpError: string | null = null;
 
-  // Gate.io CCXT params: trigger_price_type=2 uses MARK price (prevents
-  // immediate fill), and 'stop' order type maps to price_orders internally.
-  // We place SL+TP here. If Gate.io rejects the second order, we log it.
+  // Contract id: CCXT futures format "BTC/USDT:USDT" -> Gate.io id "BTC_USDT"
+  const mkt = (exchange as any).markets?.[symbol];
+  const contract: string = mkt?.id ?? symbol.replace('/USDT:USDT', '_USDT').replace('/', '_');
 
+  // Detect dual-position mode from the futures account. Single-mode and
+  // dual-mode require different body shapes:
+  //   single -> { close: true } and no auto_size
+  //   dual   -> { auto_size: "close_long" | "close_short" } and no close
+  // Default to single on detection failure (more common for retail users).
+  let inDualMode = false;
   try {
-    const slRes = await exchange.createOrder(symbol, 'stop',
-      side === 'long' ? 'sell' : 'buy',
-      quantity, stopLoss,
-      { reduceOnly: true, trigger_price_type: 2 }
+    const acctSigned = (exchange as any).sign(
+      'usdt/accounts',
+      ['private', 'futures'],
+      'GET',
+      {},
     );
-    slOrderId = slRes?.id?.toString() || null;
+    const acctResp = await fetch(acctSigned.url, {
+      method: 'GET',
+      headers: acctSigned.headers,
+    });
+    const acct = await acctResp.json();
+    inDualMode = Boolean(acct?.in_dual_mode);
+  } catch (_) { /* default false */ }
+
+  // Build the initial-order half of the price_orders body. We use size=0
+  // (full close on trigger) so partial-fill mismatches between our recorded
+  // quantity and the actual open position don't cause "size mismatch" errors.
+  const buildInitial = () => {
+    const base: Record<string, any> = {
+      contract,
+      size: 0,
+      price: '0',
+      tif: 'ioc',
+      reduce_only: true,
+      text: 't-garda',
+    };
+    if (inDualMode) {
+      base.auto_size = side === 'long' ? 'close_long' : 'close_short';
+    } else {
+      base.close = true;
+    }
+    return base;
+  };
+
+  const buildBody = (triggerPrice: number, rule: 1 | 2) => ({
+    initial: buildInitial(),
+    trigger: {
+      strategy_type: 0,
+      price_type: 1,                 // 1 = mark price (anti-wick)
+      price: String(triggerPrice),
+      rule,                          // 1: price >= trigger, 2: price <= trigger
+      expiration: 604800,            // 7 days
+    },
+  });
+
+  const postPriceOrder = async (body: Record<string, any>) => {
+    // sign() positional args: (path, [auth, type], method, params).
+    // params is a dict — sign() JSON-stringifies it internally and hashes
+    // the resulting string. Passing a pre-stringified body produces a
+    // signature that won't match the body we send.
+    const signed = (exchange as any).sign(
+      'usdt/price_orders',
+      ['private', 'futures'],
+      'POST',
+      body,
+    );
+    const resp = await fetch(signed.url, {
+      method: 'POST',
+      headers: signed.headers,
+      body: signed.body,
+    });
+    const text = await resp.text();
+    let json: any;
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    return { ok: resp.ok, status: resp.status, json };
+  };
+
+  const extractId = (j: any): string | null => {
+    // Gate.io returns the trigger order id as `id` (number). On success
+    // the id is non-zero and `status` is "open".
+    if (j && (typeof j.id === 'number' || typeof j.id === 'string') && String(j.id) !== '0') {
+      return String(j.id);
+    }
+    return null;
+  };
+
+  // --- SL ---
+  try {
+    const slRule: 1 | 2 = side === 'long' ? 2 : 1;
+    const r = await postPriceOrder(buildBody(stopLoss, slRule));
+    const id = extractId(r.json);
+    if (r.ok && id) {
+      slOrderId = id;
+    } else {
+      slError = `Gate.io SL [${r.status}]: ${r.json?.label || ''} ${r.json?.message || JSON.stringify(r.json).slice(0, 200)}`.trim();
+    }
   } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
+  // --- TP ---
   try {
-    const tpRes = await exchange.createOrder(symbol, 'stop',
-      side === 'long' ? 'sell' : 'buy',
-      quantity, takeProfit,
-      { reduceOnly: true, trigger_price_type: 2 }
-    );
-    tpOrderId = tpRes?.id?.toString() || null;
+    const tpRule: 1 | 2 = side === 'long' ? 1 : 2;
+    const r = await postPriceOrder(buildBody(takeProfit, tpRule));
+    const id = extractId(r.json);
+    if (r.ok && id) {
+      tpOrderId = id;
+    } else {
+      tpError = `Gate.io TP [${r.status}]: ${r.json?.label || ''} ${r.json?.message || JSON.stringify(r.json).slice(0, 200)}`.trim();
+    }
   } catch (e: any) { tpError = 'Gate.io TP: ' + (e.message?.slice(0, 200) || 'unknown'); }
 
   return { slOrderId, tpOrderId, slError, tpError };

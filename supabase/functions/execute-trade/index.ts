@@ -217,22 +217,16 @@ Deno.serve(async (req: Request) => {
     const slDistancePct = Math.abs(entryPrice - stopLoss) / entryPrice;
     if (slDistancePct <= 0) return json({ error: 'Invalid stop loss distance' }, 400);
 
-    // Position value = riskAmount / SL%, capped at 90 % of effectiveBalance
-    // so the exchange has room for fees.
+    // Position value = riskAmount / SL%, capped at 80 % of effectiveBalance
+    // so the exchange has room for IM + taker fees + maintenance margin.
+    // Bybit UTA in particular rejects orders when post-fill available balance
+    // would dip below zero (retCode 110007 "ab not enough").
     const rawPositionValue = riskAmount / slDistancePct;
-    const MAX_MARGIN_RATIO = 0.90;
+    const MAX_MARGIN_RATIO = 0.80;
     const positionValue = Math.min(rawPositionValue, effectiveBalance * MAX_MARGIN_RATIO);
 
-    const rawQty = positionValue / entryPrice;
-    // Gate.io minimum order size is 1 contract. Round up for exchanges that
-    // enforce minimum qty, but ensure we don't exceed the allowed margin.
-    const qtyRounded = Math.ceil(rawQty);
-    const quantity = qtyRounded >= 1 ? qtyRounded : rawQty;
-    const takeProfit = side === 'long' ? entryPrice * (1 + slDistancePct * rrRatio) : entryPrice * (1 - slDistancePct * rrRatio);
-    const margin = quantity * entryPrice;
-
     // ==============================
-    // ORDER EXECUTION
+    // ORDER EXECUTION (init exchange first so we can use amountToPrecision)
     // ==============================
     const ExchangeClass = EXCHANGE_CLASSES[profile.exchange];
     const exchange = new ExchangeClass({ apiKey, secret: apiSecret, enableRateLimit: true, options: { defaultType: 'swap' } });
@@ -242,19 +236,86 @@ Deno.serve(async (req: Request) => {
     const market = (exchange as any).markets?.[swapSymbol];
     const marketSymbol = market?.id ?? symbol;
 
+    // Quantity sizing — different unit per exchange:
+    //   Bybit / Binance / OKX: native COIN amount (e.g. 7.30 SPCX), step from
+    //     market.precision.amount, rounded DOWN to never exceed positionValue.
+    //   Gate.io futures: integer CONTRACTS, where 1 contract = quanto_multiplier
+    //     coins. We must convert coin amount -> contracts ourselves; CCXT does
+    //     NOT do this conversion (it just validates against limits.amount.min=1
+    //     which is "1 contract"). Skipping this is what produced the
+    //     "must be greater than minimum amount precision of 1" error.
+    const rawCoinQty = positionValue / entryPrice;
+    let quantity: number;
+    if (profile.exchange === 'gateio') {
+      // info.quanto_multiplier comes straight from the contract metadata.
+      const quanto = Number((market as any)?.info?.quanto_multiplier ?? 0);
+      if (!quanto || quanto <= 0) {
+        return json({ error: 'Gate.io: missing quanto_multiplier for symbol ' + symbol }, 400);
+      }
+      const rawContracts = rawCoinQty / quanto;
+      quantity = Math.floor(rawContracts);                 // round DOWN, integer contracts
+    } else {
+      try {
+        quantity = Number(exchange.amountToPrecision(swapSymbol, rawCoinQty));
+      } catch (_) {
+        quantity = rawCoinQty >= 1 ? Math.floor(rawCoinQty) : rawCoinQty;
+      }
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      const hint = profile.exchange === 'gateio'
+        ? `Balance/leverage tidak cukup untuk minimum 1 contract di Gate.io (1 contract = ${(market as any)?.info?.quanto_multiplier ?? '?'} ${symbol.split('/')[0]}).`
+        : 'Tambahkan margin % atau saldo.';
+      return json({ error: `Position size too small (qty=${quantity}). ${hint}` }, 400);
+    }
+    const rawTakeProfit = side === 'long' ? entryPrice * (1 + slDistancePct * rrRatio) : entryPrice * (1 - slDistancePct * rrRatio);
+
+    // Round SL/TP to the market's price tick. Gate.io rejects price_orders
+    // with "trigger.price is not an integer multiple of a price unit" if
+    // we send 4-decimal values to a 0.01-tick market like SPCX_USDT. CCXT
+    // priceToPrecision honours each market's tickSize / order_price_round.
+    let roundedStopLoss = stopLoss;
+    let roundedTakeProfit = rawTakeProfit;
+    try { roundedStopLoss = Number(exchange.priceToPrecision(swapSymbol, stopLoss)); } catch (_) {}
+    try { roundedTakeProfit = Number(exchange.priceToPrecision(swapSymbol, rawTakeProfit)); } catch (_) {}
+    const takeProfit = roundedTakeProfit;
+
+    // Margin recorded in DB is notional, so reflect actual coin amount even
+    // when we sent contracts to Gate.io.
+    const coinQuantity = profile.exchange === 'gateio'
+      ? quantity * Number((market as any)?.info?.quanto_multiplier ?? 1)
+      : quantity;
+    const margin = coinQuantity * entryPrice;
+
     try { await exchange.setLeverage(1, marketSymbol); } catch (_) {}
+
+    // Bybit position mode: detect once so entry + SL + TP can attach the
+    // correct positionIdx. one-way -> 0 (or omitted), hedge -> 1 long / 2 short.
+    // Without this Bybit returns retCode 10001 "position idx not match position mode".
+    let bybitPositionIdx = 0;
+    if (profile.exchange === 'bybit') {
+      try {
+        const signed = exchange.sign(`/v5/position/list?category=linear&symbol=${marketSymbol}`, 'private', 'GET');
+        const resp = await fetch(`https://api.bybit.com/v5/position/list?category=linear&symbol=${marketSymbol}`, { headers: signed.headers });
+        const posJson = await resp.json();
+        // mode: 0 = one-way (single positionIdx=0), 3 = hedge (separate long/short)
+        const posList: any[] = posJson?.result?.list || [];
+        const isHedge = posList.some((p: any) => Number(p.positionIdx) === 1 || Number(p.positionIdx) === 2);
+        if (isHedge) bybitPositionIdx = side === 'long' ? 1 : 2;
+      } catch (_) { /* default to 0 (one-way) */ }
+    }
 
     const orderSide: 'buy' | 'sell' = side === 'long' ? 'buy' : 'sell';
     const slSide: 'buy' | 'sell' = side === 'long' ? 'sell' : 'buy';
 
     // 1. Entry
-    const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity);
+    const entryParams: Record<string, any> = profile.exchange === 'bybit' ? { positionIdx: bybitPositionIdx } : {};
+    const order = await exchange.createOrder(marketSymbol, 'market', orderSide, quantity, undefined, entryParams);
 
     // 2. SL + TP via native REST (hybrid — bypasses CCXT for SL/TP)
     const sltp = await placeSlAndTp(
       { apiKey, apiSecret, exchange },
       profile.exchange,
-      { symbol: marketSymbol, quantity, stopLoss, takeProfit, side },
+      { symbol: marketSymbol, quantity, stopLoss: roundedStopLoss, takeProfit: roundedTakeProfit, side, positionIdx: bybitPositionIdx },
     );
     const slOrder: any = sltp.slOrderId ? { id: sltp.slOrderId } : null;
     const tpOrder: any = sltp.tpOrderId ? { id: sltp.tpOrderId } : null;
@@ -262,9 +323,12 @@ Deno.serve(async (req: Request) => {
     const tpErr = sltp.tpError;
 
     // --- SAVE TO DB ---
+    // Persist the rounded SL/TP so what the UI shows matches what the
+    // exchange actually has on the books (avoids "I set 172.4171 but Bybit
+    // shows 172.42" confusion).
     const { data: trade } = await supabase.from('trades').insert({
       user_id: user.id, exchange: profile.exchange, symbol, side,
-      entry_price: entryPrice, stop_loss: stopLoss, take_profit: takeProfit,
+      entry_price: entryPrice, stop_loss: roundedStopLoss, take_profit: takeProfit,
       quantity, risk_amount: riskAmount, rr_ratio: rrRatio, status: 'open',
       notes: [slErr ? 'SL:' + slErr : '', tpErr ? 'TP:' + tpErr : ''].filter(Boolean).join(' | ') || null,
       exchange_order_id: order?.id || null,

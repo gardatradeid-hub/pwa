@@ -92,12 +92,52 @@ Deno.serve(async (req: Request) => {
     const mkt = (exchange as any).markets?.[swapSymbol];
     const marketSymbol = mkt?.id ?? trade.symbol;
 
-    const closeSide: 'buy' | 'sell' = trade.side === 'long' ? 'sell' : 'buy';
-    const closeOrder = await exchange.createOrder(marketSymbol, 'market', closeSide, Number(trade.quantity), undefined, { reduceOnly: true });
+    // Bybit hedge mode: close order needs the same positionIdx as the open
+    // side (1=long, 2=short). One-way mode uses 0. Mirrors execute-trade.
+    let bybitPositionIdx = 0;
+    if (profile.exchange === 'bybit') {
+      try {
+        const signed = exchange.sign(`/v5/position/list?category=linear&symbol=${marketSymbol}`, 'private', 'GET');
+        const resp = await fetch(`https://api.bybit.com/v5/position/list?category=linear&symbol=${marketSymbol}`, { headers: signed.headers });
+        const j = await resp.json();
+        const posList: any[] = j?.result?.list || [];
+        const isHedge = posList.some((p: any) => Number(p.positionIdx) === 1 || Number(p.positionIdx) === 2);
+        if (isHedge) bybitPositionIdx = trade.side === 'long' ? 1 : 2;
+      } catch (_) {}
+    }
 
-    // Cancel SL + TP
-    try { if (trade.exchange_sl_order_id) await exchange.cancelOrder(trade.exchange_sl_order_id, marketSymbol); } catch (_) {}
-    try { if (trade.exchange_tp_order_id) await exchange.cancelOrder(trade.exchange_tp_order_id, marketSymbol); } catch (_) {}
+    const closeSide: 'buy' | 'sell' = trade.side === 'long' ? 'sell' : 'buy';
+    const closeParams: Record<string, any> = { reduceOnly: true };
+    if (profile.exchange === 'bybit') closeParams.positionIdx = bybitPositionIdx;
+    const closeOrder = await exchange.createOrder(marketSymbol, 'market', closeSide, Number(trade.quantity), undefined, closeParams);
+
+    // Cancel SL + TP. Gate.io's SL/TP live on a SEPARATE endpoint
+    // (/futures/usdt/price_orders/{id}, not /orders/{id}), so the unified
+    // cancelOrder() hits the wrong path. Use native DELETE for Gate.io,
+    // CCXT cancelOrder for everyone else (the reduceOnly flag on those
+    // orders means they self-cancel on close anyway, but cleaning up
+    // keeps the exchange UI tidy and prevents stale orders accumulating).
+    const cancelGateioPriceOrder = async (orderId: string) => {
+      const signed = (exchange as any).sign(
+        `usdt/price_orders/${orderId}`,
+        ['private', 'futures'],
+        'DELETE',
+        {},
+      );
+      await fetch(signed.url, { method: 'DELETE', headers: signed.headers });
+    };
+    try {
+      if (trade.exchange_sl_order_id) {
+        if (profile.exchange === 'gateio') await cancelGateioPriceOrder(trade.exchange_sl_order_id);
+        else await exchange.cancelOrder(trade.exchange_sl_order_id, marketSymbol);
+      }
+    } catch (_) {}
+    try {
+      if (trade.exchange_tp_order_id) {
+        if (profile.exchange === 'gateio') await cancelGateioPriceOrder(trade.exchange_tp_order_id);
+        else await exchange.cancelOrder(trade.exchange_tp_order_id, marketSymbol);
+      }
+    } catch (_) {}
 
     // --- RESOLVE EXIT PRICE ---
     // CCXT market-order response often has null .price/.average until the fill
@@ -120,12 +160,22 @@ Deno.serve(async (req: Request) => {
       } catch (_) {}
     }
     if (!exitPrice) exitPrice = Number(trade.entry_price);
+
+    // P&L is per-coin × coin amount. Gate.io stores `quantity` as integer
+    // contracts, where 1 contract = quanto_multiplier coins; everyone else
+    // stores it as the coin amount directly.
+    let coinQty = Number(trade.quantity);
+    if (profile.exchange === 'gateio') {
+      const quanto = Number((mkt as any)?.info?.quanto_multiplier ?? 0);
+      if (quanto > 0) coinQty = Number(trade.quantity) * quanto;
+    }
+
     let pnlUsdt: number, pnlR: number;
     if (trade.side === 'long') {
-      pnlUsdt = (exitPrice - Number(trade.entry_price)) * Number(trade.quantity);
+      pnlUsdt = (exitPrice - Number(trade.entry_price)) * coinQty;
       pnlR = (exitPrice - Number(trade.entry_price)) / (Number(trade.entry_price) - Number(trade.stop_loss));
     } else {
-      pnlUsdt = (Number(trade.entry_price) - exitPrice) * Number(trade.quantity);
+      pnlUsdt = (Number(trade.entry_price) - exitPrice) * coinQty;
       pnlR = (Number(trade.entry_price) - exitPrice) / (Number(trade.stop_loss) - Number(trade.entry_price));
     }
     const isWin = pnlR > 0;
