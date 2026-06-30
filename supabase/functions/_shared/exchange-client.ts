@@ -328,7 +328,52 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   let tpOrderId: string | null = null;
   let tpError: string | null = null;
 
-  // Poll until position exists (max 15 detik)
+  // Konversi "SPCX/USDT:USDT" → "SPCX_USDT" (Gate.io contract ID)
+  const contract = symbol.includes(':') ? symbol.split(':')[0].replace('/', '_') : symbol.replace('/', '_');
+
+  /**
+   * Helper: panggil native Gate.io REST API untuk pasang SL atau TP.
+   *
+   * Gate.io docs: POST /api/v4/futures/usdt/price_orders
+   * Body: { contract, size, price, tif, reduce_only, close, trigger_price_type }
+   *
+   * trigger_price_type: 1=last_price (default), 2=mark_price, 3=index_price.
+   * Menggunakan mark_price (2) mencegah order langsung dieksekusi.
+   */
+  async function gateioPriceOrder(triggerPrice: number): Promise<string | null> {
+    const closeSize = side === 'long' ? -quantity : quantity; // negative = close
+
+    // Gunakan exchange.sign() untuk menghasilkan header otentikasi
+    const signed = exchange.sign({
+      url: '/api/v4/futures/usdt/price_orders',
+      api: 'api',
+      method: 'POST',
+      params: {
+        contract,
+        size: String(closeSize),
+        price: String(triggerPrice),
+        tif: 'gtc',                    // good-till-cancel
+        reduce_only: true,
+        close: false,
+        trigger_price_type: 2,         // MARK_PRICE — mencegah eksekusi langsung
+      },
+    });
+
+    const response = await fetch('https://api.gateio.ws/api/v4/futures/usdt/price_orders', {
+      method: 'POST',
+      headers: signed.headers,
+      body: signed.body,
+    });
+    const json = await response.json();
+
+    if (response.ok) {
+      return json?.id?.toString() || null;
+    }
+    console.error(`Gate.io price_order gagal (${response.status}): ${JSON.stringify(json)}`);
+    return null;
+  }
+
+  // Tunggu posisi muncul (maks 22 detik)
   let posFound = false;
   for (let i = 0; i < 15; i++) {
     try {
@@ -340,26 +385,32 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   }
 
   if (!posFound) {
-    slError = 'Gate.io SL: posisi tidak muncul setelah 22 detik';
+    slError = 'Gate.io SL/TP: posisi tidak muncul setelah 22 detik';
+    tpError = 'Gate.io SL/TP: posisi tidak muncul setelah 22 detik';
   } else {
-    // GATE.IO SL DISABLED:
-    // Every attempt to place a stop order on Gate.io via CCXT results in
-    // immediate execution (entry + close at the same price), losing money.
-    // This is because Gate.io interprets the stop price as a market trigger
-    // that fires instantly when the position is new and the mark price is
-    // very close to the trigger.
-    //
-    // Until a reliable Gate.io SL implementation is found, SL is SKIPPED
-    // for safety. Users must set SL manually on the Gate.io app.
-    slOrderId = null;
-    slError = 'Gate.io SL: skipped (unreliable — SL triggers immediately)';
-  }
+    /**
+     * Setelah posisi muncul, pasang SL dan TP.
+     *
+     * Gate.io HANYA mendukung 1 price_order per posisi. Jadi:
+     *   - Pasang SL sebagai price_order.
+     *   - TP diskip — tidak bisa 2 price_orders bersamaan.
+     */
+    // Pasang SL
+    try {
+      const slId = await gateioPriceOrder(stopLoss);
+      if (slId) {
+        slOrderId = slId;
+      } else {
+        slError = 'Gate.io SL: gagal dipasang (response tidak memiliki id)';
+      }
+    } catch (e: any) {
+      slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown');
+    }
 
-  // Gate.io hanya mengizinkan 1 stop order per posisi via price_orders.
-  // SL sudah terpasang di atas — TP tidak bisa dipasang bersamaan.
-  // Ini batasan Gate.io, bukan bug. TP dilewati.
-  tpOrderId = null;
-  tpError = 'Gate.io: SL sudah terpasang, TP tidak bisa (batasan exchange)';
+    // Gate.io batasi 1 price_order per posisi. TP tidak bisa bersamaan dengan SL.
+    tpOrderId = null;
+    tpError = 'Gate.io: hanya 1 price_order per posisi — SL sudah terpasang';
+  }
 
   return { slOrderId, tpOrderId, slError, tpError };
 }
