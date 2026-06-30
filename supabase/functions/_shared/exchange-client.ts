@@ -320,7 +320,7 @@ async function placeSlTpKuCoin(creds: ExchangeCredentials, params: SlTpParams): 
 // auto-fills as market when the trigger price is reached.
 
 async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): Promise<SlTpResult> {
-  const { exchange } = creds;
+  const { exchange, apiKey, apiSecret } = creds;
   const { symbol, quantity, stopLoss, takeProfit, side } = params;
 
   let slOrderId: string | null = null;
@@ -340,28 +340,51 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
    * trigger_price_type: 1=last_price (default), 2=mark_price, 3=index_price.
    * Menggunakan mark_price (2) mencegah order langsung dieksekusi.
    */
+  /**
+   * Kirim price_order ke Gate.io dengan otentikasi HMAC-SHA512.
+   * Ini SEPENUHNYA melewati CCXT — membangun header auth secara manual
+   * sesuai dokumentasi Gate.io API v4.
+   */
   async function gateioPriceOrder(triggerPrice: number): Promise<string | null> {
     const closeSize = side === 'long' ? -quantity : quantity;
-    // exchange.sign(path, api, method, params) — positional args
-    const signed = exchange.sign(
-      '/api/v4/futures/usdt/price_orders',
-      'api',
-      'POST',
-      {
-        contract,
-        size: String(closeSize),
-        price: String(triggerPrice),
-        tif: 'gtc',
-        reduce_only: true,
-        close: false,
-        trigger_price_type: 2,
-      },
-    );
 
-    const response = await fetch('https://api.gateio.ws/api/v4/futures/usdt/price_orders', {
+    // Gate.io HMAC-SHA512 auth
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const bodyStr = JSON.stringify({
+      contract,
+      size: String(closeSize),
+      price: String(triggerPrice),
+      tif: 'gtc',
+      reduce_only: true,
+      close: false,
+      trigger_price_type: 2,
+    });
+    const hashedBody = await crypto.subtle.digest('SHA-512', new TextEncoder().encode(bodyStr));
+    const bodyHash = Array.from(new Uint8Array(hashedBody)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const method = 'POST';
+    const requestPath = '/api/v4/futures/usdt/price_orders';
+    const payload = `${method}
+${requestPath}
+
+${bodyHash}
+${timestamp}`;
+
+    // Encode secret as UTF-8, sign with HMAC-SHA512
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(apiSecret), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+    const sigHex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    const response = await fetch('https://api.gateio.ws' + requestPath, {
       method: 'POST',
-      headers: signed.headers,
-      body: signed.body,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'KEY': apiKey,
+        'SIGN': sigHex,
+        'Timestamp': timestamp,
+      },
+      body: bodyStr,
     });
     const json = await response.json();
 
