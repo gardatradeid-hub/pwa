@@ -62,8 +62,30 @@ async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promi
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const { data, error } = await supabase.functions.invoke(fnName, { body });
+
+      // supabase-js v2 sets `error` (FunctionsHttpError) for any non-2xx
+      // response. For our edge functions, 4xx/5xx still carry a structured
+      // JSON body — guardrail failures come back as 422 with {success:false,
+      // error, failedChecks}. The SDK doesn't decode that body for us; we
+      // have to pull it off error.context (which is a Response).
       if (error) {
-        // Network error — function never reached
+        let bodyData: any = null;
+        try {
+          // FunctionsHttpError exposes the raw Response on .context.
+          const ctx: Response | undefined = (error as any).context;
+          if (ctx && typeof ctx.json === 'function') {
+            bodyData = await ctx.clone().json();
+          }
+        } catch (_) { /* fall through to generic */ }
+
+        if (bodyData) {
+          // Return the parsed body so callers can read success/error/failedChecks
+          // exactly like the 200 path. This is the line that surfaces
+          // guardrail messages instead of a generic "failed to send" toast.
+          return bodyData;
+        }
+
+        // No body parsed — treat as real network error and retry.
         lastError = error;
         if (attempt < maxRetries) {
           await new Promise((r) => setTimeout(r, 2000));
@@ -72,14 +94,11 @@ async function invokeWithRetry(fnName: string, body: any, maxRetries = 3): Promi
         const msg = error.message || 'Coba lagi.';
         throw new Error(`Gagal terhubung ke server: ${msg}`);
       }
-      // Server-side error (guardrail, exchange, etc.) — throw the actual message
-      if (data?.error) {
-        // Include failedChecks messages if present (guardrail errors)
-        const guardMsgs = data.failedChecks
-          ?.map((c: any) => c.message || c.message_en)
-          ?.filter(Boolean)
-          ?.join('; ');
-        throw new Error(guardMsgs || data.error);
+
+      // 2xx with explicit success:false (shouldn't happen now, but kept for
+      // safety) — surface guardrail messages over generic error.
+      if (data && data.success === false) {
+        return data;
       }
       return data;
     } catch (e: any) {
