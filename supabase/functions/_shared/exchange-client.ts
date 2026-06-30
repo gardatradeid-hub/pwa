@@ -341,23 +341,22 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
    * Menggunakan mark_price (2) mencegah order langsung dieksekusi.
    */
   async function gateioPriceOrder(triggerPrice: number): Promise<string | null> {
-    const closeSize = side === 'long' ? -quantity : quantity; // negative = close
-
-    // Gunakan exchange.sign() untuk menghasilkan header otentikasi
-    const signed = exchange.sign({
-      url: '/api/v4/futures/usdt/price_orders',
-      api: 'api',
-      method: 'POST',
-      params: {
+    const closeSize = side === 'long' ? -quantity : quantity;
+    // exchange.sign(path, api, method, params) — positional args
+    const signed = exchange.sign(
+      '/api/v4/futures/usdt/price_orders',
+      'api',
+      'POST',
+      {
         contract,
         size: String(closeSize),
         price: String(triggerPrice),
-        tif: 'gtc',                    // good-till-cancel
+        tif: 'gtc',
         reduce_only: true,
         close: false,
-        trigger_price_type: 2,         // MARK_PRICE — mencegah eksekusi langsung
+        trigger_price_type: 2,
       },
-    });
+    );
 
     const response = await fetch('https://api.gateio.ws/api/v4/futures/usdt/price_orders', {
       method: 'POST',
