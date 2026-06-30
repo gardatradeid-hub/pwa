@@ -344,7 +344,7 @@ async function placeSlTpGateio(creds: ExchangeCredentials, params: SlTpParams): 
   } else {
     try {
       const slRes = await exchange.createOrder(symbol, 'stop', side === 'long' ? 'sell' : 'buy',
-        quantity, stopLoss, { reduceOnly: true, triggerPrice: stopLoss, trigger: 'mark_price' }
+        quantity, stopLoss, { reduceOnly: true }
       );
       slOrderId = slRes?.id?.toString() || null;
     } catch (e: any) { slError = 'Gate.io SL: ' + (e.message?.slice(0, 200) || 'unknown'); }
