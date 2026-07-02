@@ -8,7 +8,7 @@ import {
 import { useUserStore } from '@/store/useUserStore';
 import { useTradeStore } from '@/store/useTradeStore';
 import { useTimer } from '@/hooks/useTimer';
-import { fetchTicker, fetchOHLCV, executeTrade, closeTrade } from '@/lib/ccxt-proxy';
+import { fetchTicker, fetchOHLCV, executeTrade, closeTrade, syncTrade } from '@/lib/ccxt-proxy';
 import { formatUSDT, formatPrice } from '@/lib/formatters';
 import { translateError, formatEdgeError } from '@/lib/error-translator';
 import { cn } from '@/lib/utils';
@@ -46,6 +46,10 @@ function useToast() {
 const TIMEFRAMES = [{ label: '5M', value: '5m' }, { label: '15M', value: '15m' }, { label: '1H', value: '1h' }, { label: '4H', value: '4h' }, { label: '1D', value: '1d' }] as const;
 const TICKER_POLL_MS = 5_000;
 const OHLCV_POLL_MS = 15_000;
+// Sync poll: while a trade is open, ask the server every 20s whether it's
+// still open at the exchange. Detects SL/TP fills so the UI clears the
+// active trade + shows PnL without the user pressing "Tutup Trade".
+const SYNC_POLL_MS = 20_000;
 
 const CHART_COLORS = { background: '#0A0A14', text: '#8A8AA0', grid: 'rgba(42, 42, 62, 0.6)', border: '#2A2A3E', candleUp: '#00E5C3', candleDown: '#FF0080', wickUp: '#00E5C3', wickDown: '#FF0080', volumeUp: 'rgba(0, 229, 195, 0.3)', volumeDown: 'rgba(255, 0, 128, 0.3)', crosshair: '#4A4A6A' };
 
@@ -150,10 +154,16 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
   };
 
   useEffect(() => {
+    // Once a position is open we let the parent drive positionLines from
+    // the DB row (which stores the exchange-side rounded SL/TP). Pushing
+    // preview lines from the form input here would fight that update and
+    // race, so the SL/TP on the chart could drift from what the exchange
+    // actually has on the books.
+    if (activeTrade) return;
     if (currentPrice > 0 && stopLoss > 0 && takeProfit > 0 && direction)
       onPositionLinesChange({ entryPrice: 0, stopLoss, takeProfit, side: direction });
     else onPositionLinesChange(null);
-  }, [currentPrice, stopLoss, takeProfit, direction]);
+  }, [activeTrade, currentPrice, stopLoss, takeProfit, direction]);
 
   const canTrade = !isLocked && (cooldown?.isExpired ?? true) && !activeTrade && tradesToday < maxTrades && !isSubmitting && direction && currentPrice > 0 && stopLoss > 0 && quantity > 0;
 
@@ -347,6 +357,52 @@ export default function TradePage() {
   }, []);
 
   useEffect(() => { if (tradeStore.activeTrade) setPositionLines({ entryPrice: tradeStore.activeTrade.entry_price, stopLoss: tradeStore.activeTrade.stop_loss, takeProfit: tradeStore.activeTrade.take_profit, side: tradeStore.activeTrade.side }); }, [tradeStore.activeTrade]);
+
+  // Reconcile active trade with exchange. If SL/TP fires while the user is
+  // watching the chart, sync-trade detects the exchange-side close and
+  // returns the resulting PnL — we clear activeTrade + toast without
+  // requiring the user to press "Tutup Trade". The poll pauses when the
+  // tab is hidden and stops entirely when there's no active trade.
+  useEffect(() => {
+    const activeTradeId = tradeStore.activeTrade?.id;
+    if (!activeTradeId) return;
+    let running = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      if (!running) return;
+      // Only sync when tab is visible AND we still have an active trade —
+      // avoids racing with a manual close in flight.
+      if (tabVisibleRef.current && useTradeStore.getState().activeTrade?.id === activeTradeId && !isSubmitting) {
+        try {
+          const res = await syncTrade(activeTradeId);
+          if (!running) return;
+          if (res?.success && res.stillOpen === false && !res.alreadyClosed) {
+            // Exchange-side close (SL or TP fired). Mirror the manual-close
+            // flow so UI state stays consistent.
+            tradeStore.setActiveTrade(null);
+            setPositionLines(null);
+            tradeStore.setShowPostTradeModal(true, activeTradeId);
+            const label = res.firedSide === 'sl' ? 'SL Terpicu' : res.firedSide === 'tp' ? 'TP Terpicu' : 'Trade Ditutup';
+            addToast(
+              res.pnl?.isWin ? 'success' : 'info',
+              label,
+              `PnL: ${res.pnl?.usdt?.toFixed(2) ?? '?'} USDT · ${res.pnl?.r?.toFixed(2) ?? '?'}R`,
+            );
+            if (res.lockTriggered) {
+              tradeStore.setIsLocked(true);
+              setTimeout(() => navigate('/app/locked'), 1500);
+            }
+            return; // no next poll — trade is done
+          }
+        } catch (_) { /* transient — try again next tick */ }
+      }
+      timer = setTimeout(poll, SYNC_POLL_MS);
+    };
+    // First check runs after one interval so a just-opened trade doesn't
+    // race against exchange propagation.
+    timer = setTimeout(poll, SYNC_POLL_MS);
+    return () => { running = false; if (timer) clearTimeout(timer); };
+  }, [tradeStore.activeTrade?.id, isSubmitting, addToast, navigate]);
 
   const handleAuthError = useCallback((msg: string) => { if (/unauthorized|jwt|expired|token/i.test(msg)) { addToast('error', 'Sesi Habis', 'Silakan login kembali.'); setTimeout(() => { useUserStore.getState().reset(); navigate('/login'); }, 1500); return true; } return false; }, [navigate, addToast]);
 

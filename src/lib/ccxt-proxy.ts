@@ -120,3 +120,19 @@ export async function executeTrade(params: {
 export async function closeTrade(tradeId: string): Promise<any> {
   return invokeWithRetry('close-trade', { tradeId });
 }
+
+/**
+ * Reconcile a locally-open trade with the exchange. If the exchange no
+ * longer shows a position for the trade's symbol, sync-trade determines
+ * whether SL or TP fired, records the fill and updates trade/daily_stats/
+ * lock_events the same way close-trade would.
+ *
+ * Response shape:
+ *   { success: true, stillOpen: true }                        -> position still live
+ *   { success: true, alreadyClosed: true, trade }             -> already closed
+ *   { success: true, stillOpen: false, firedSide, trade, pnl, lockTriggered }
+ *   { success: false, error }                                 -> error
+ */
+export async function syncTrade(tradeId: string): Promise<any> {
+  return invokeWithRetry('sync-trade', { tradeId });
+}
