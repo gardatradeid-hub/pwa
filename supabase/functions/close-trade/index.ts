@@ -7,8 +7,8 @@
  * (zero external variable references).
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import ccxt from 'https://esm.sh/ccxt@4';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import ccxt from 'npm:ccxt@4';
 import { decryptSecret } from '../_shared/crypto.ts';
 import { logAudit, Action } from '../_shared/logger.ts';
 

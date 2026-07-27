@@ -16,7 +16,7 @@
  *   get_config          → { config }
  *   update_config (key, value) → { success }
  */
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import { logAudit, Action } from '../_shared/logger.ts';
 import { extractAdminToken, verifyAdminToken, adminCorsHeaders } from '../_shared/admin-auth.ts';
 
