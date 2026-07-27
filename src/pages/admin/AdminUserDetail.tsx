@@ -25,7 +25,7 @@ export default function AdminUserDetail() {
   const initialSync = useRef(true);
   if (user && initialSync.current) {
     initialSync.current = false;
-    if (user.current_phase && phase === 1) setPhase(user.current_phase);
+    if (user.evaluation_tier && phase === 1) setPhase(user.evaluation_tier);
     if (user.exchange && !exchange) setExchange(user.exchange);
     if (user.onboarding_completed !== undefined && onboarding === false) setOnboarding(user.onboarding_completed);
   }
@@ -35,7 +35,7 @@ export default function AdminUserDetail() {
     try {
       await updateUser.mutateAsync({
         user_id: user.id,
-        current_phase: phase,
+        current_phase: phase, // DB column still named evaluation_tier; admin API maps this
         exchange: exchange || undefined,
         onboarding_completed: onboarding,
       });
@@ -84,9 +84,10 @@ export default function AdminUserDetail() {
             <label className="block text-[11px] font-medium text-garda-text-secondary mb-1.5">{t('admin.phase')}</label>
             <select value={phase} onChange={(e) => setPhase(Number(e.target.value))}
               className="garda-input w-full py-2 text-xs">
-              <option value={1}>Phase 1 — Pemula</option>
-              <option value={2}>Phase 2 — Terlatih</option>
-              <option value={3}>Phase 3 — Professional</option>
+              <option value={1}>Tier 1 — Bronze</option>
+              <option value={2}>Tier 2 — Silver</option>
+              <option value={3}>Tier 3 — Gold</option>
+              <option value={4}>Tier 4 — Platinum</option>
             </select>
           </div>
           <div>

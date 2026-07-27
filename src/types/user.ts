@@ -17,7 +17,8 @@ export interface UserProfile {
   email: string | null;
   avatar_url: string | null;
   exchange: Exchange | null;
-  current_phase: number;
+  evaluation_tier: number;
+  evaluation_metrics: EvaluationMetrics | null;
   is_early_adopter: boolean;
   subscription_plan: string;
   subscription_expires_at: string | null;
@@ -37,12 +38,39 @@ export interface UserProfile {
  * here too, and to the DB row.
  */
 export const PROFILE_CLIENT_COLUMNS =
-  'id, full_name, email, avatar_url, exchange, current_phase, ' +
+  'id, full_name, email, avatar_url, exchange, evaluation_tier, evaluation_metrics, ' +
   'is_early_adopter, subscription_plan, subscription_expires_at, ' +
   'onboarding_completed, preferred_lang, preferred_theme, ' +
   'email_verified, auth_provider, created_at, updated_at';
 
-export interface PhaseInfo {
+export interface EvaluationMetrics {
+  total_trades: number;
+  total_wins: number;
+  total_losses: number;
+  win_rate: number;
+  profit_factor: number;
+  total_pnl_r: number;
+  max_drawdown_r: number;
+}
+
+export interface EvaluationTier {
+  tier: number;
+  name: string;
+  name_id: string;
+  color: string;
+  icon: string;
+  max_trades: number;
+  cooldown_min: number;
+  min_rr: number;
+  risk_per_trade_pct: number;
+  daily_loss_limit_r: number;
+  promotion: {
+    min_win_rate: number;
+    min_trades: number;
+    min_profit_factor?: number;
+    max_drawdown_pct?: number;
+  } | null;
+}
   phase: number;
   label: string;
   label_en: string;

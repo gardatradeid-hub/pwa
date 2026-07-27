@@ -222,7 +222,7 @@ Deno.serve(async (req: Request) => {
       });
       lockTriggered = { type: 'consecutive_loss', durationHours: dur, lockCountThisMonth: cnt, triggerReview: review };
     }
-    if (!lockTriggered && newDailyLossR >= tradingRules.daily_loss_limit_r) {
+    if (!lockTriggered && newDailyLossR >= (Number(trade.tier_daily_loss_limit_r) || 3)) {
       await supabase.from('lock_events').insert({
         user_id: user.id, lock_type: 'daily_loss', duration_hours: 12,
         lock_count_this_month: 1, unlocks_at: new Date(Date.now() + 43200000).toISOString(),
@@ -255,12 +255,75 @@ Deno.serve(async (req: Request) => {
       await supabase.from('equity_snapshots').insert({ user_id: user.id, balance_usdt: total, high_water_mark: hwm, drawdown_r: hwm > 0 ? Math.round(((hwm - total) / hwm) * 10000) / 100 : 0 });
     } catch (_) {}
 
+    // --- EVALUATION METRICS + PROMOTION ---
+    // After each close we recalculate lifetime metrics (from ALL closed
+    // trades) and check whether the user qualifies for a tier promotion.
+    // Tiers auto-unlock without admin approval.
+    let tierPromoted: any = null;
+    try {
+      const { data: closedTrades } = await supabase.from('trades')
+        .select('pnl_r')
+        .eq('user_id', user.id)
+        .eq('status', 'closed')
+        .not('pnl_r', 'is', null);
+      const allPnl = (closedTrades || []).map((t: any) => Number(t.pnl_r) || 0);
+      const totalCount = allPnl.length;
+      const wins = allPnl.filter((r: number) => r > 0).length;
+      const losses = allPnl.filter((r: number) => r < 0).length;
+      const winRate = totalCount > 0 ? wins / totalCount : 0;
+      const grossProfit = allPnl.filter((r: number) => r > 0).reduce((a: number, b: number) => a + b, 0);
+      const grossLoss = Math.abs(allPnl.filter((r: number) => r < 0).reduce((a: number, b: number) => a + b, 0));
+      const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 99 : 0);
+      // Max drawdown from rolling equity curve (approximate: worst cumulative drawdown)
+      let peak = 0, maxDd = 0, cumulative = 0;
+      for (const r of allPnl) { cumulative += r; if (cumulative > peak) peak = cumulative; const dd = peak - cumulative; if (dd > maxDd) maxDd = dd; }
+
+      const metrics = {
+        total_trades: totalCount,
+        total_wins: wins,
+        total_losses: losses,
+        win_rate: Math.round(winRate * 10000) / 100,
+        profit_factor: Math.round(profitFactor * 100) / 100,
+        total_pnl_r: Math.round(cumulative * 100) / 100,
+        max_drawdown_r: Math.round(maxDd * 100) / 100,
+      };
+
+      await supabase.from('profiles')
+        .update({ evaluation_metrics: metrics, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+
+      // Check promotion: can the user advance to the next tier?
+      const currentTier = Number(profile.evaluation_tier) || 1;
+      const evaluationTiers = (config.evaluation_tiers as any);
+      const tiersArr: any[] = evaluationTiers?.tiers || [];
+      const nextTier = tiersArr.find((t: any) => t.tier === currentTier + 1);
+      if (nextTier?.promotion) {
+        const p = nextTier.promotion;
+        const winRateOk = !p.min_win_rate || winRate >= p.min_win_rate;
+        const tradesOk = !p.min_trades || totalCount >= p.min_trades;
+        const pfOk = !p.min_profit_factor || profitFactor >= p.min_profit_factor;
+        const ddOk = !p.max_drawdown_pct || (maxDd <= p.max_drawdown_pct);
+        if (winRateOk && tradesOk && pfOk && ddOk) {
+          await supabase.from('profiles')
+            .update({ evaluation_tier: nextTier.tier, updated_at: new Date().toISOString() })
+            .eq('id', user.id);
+          tierPromoted = {
+            from_tier: currentTier,
+            to_tier: nextTier.tier,
+            from_name: tiersArr.find((t: any) => t.tier === currentTier)?.name || 'Unknown',
+            to_name: nextTier.name,
+            reason: `WR ${Math.round(winRate*100)}% · ${totalCount} trades · PF ${Math.round(profitFactor*100)/100}`,
+          };
+        }
+      }
+    } catch (_) { /* promotion check is non-blocking */ }
+
     // --- AUDIT + RETURN ---
     __log(200, undefined, { success: true, tradeId, symbol: trade.symbol, pnl: Math.round(pnlUsdt * 100) / 100 });
     return json({
       success: true, trade: updatedTrade,
       pnl: { usdt: Math.round(pnlUsdt * 100) / 100, r: Math.round(pnlR * 100) / 100, isWin },
-      lockTriggered, evaluationTriggered,
+      lockTriggered, evaluationTriggered, tierPromoted,
       dailyStats: { tradesToday: (dstats?.trades_count || 0) + 1, consecutiveLosses: newConsecutiveLosses, dailyLossR: Math.round(newDailyLossR * 100) / 100 },
     });
 

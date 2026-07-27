@@ -85,7 +85,7 @@ Deno.serve(async (req: Request) => {
     const config: Record<string, any> = {};
     for (const row of configRows) config[row.key] = row.value;
     const tradingRules = config.trading_rules;
-    const phaseConfig = config.phase_config;
+    const evaluationTiers = config.evaluation_tiers;
     const lockConfig = config.lock_config;
     const revengeConfig = config.revenge_config;
     const supportedPairs = config.supported_pairs || [];
@@ -94,6 +94,7 @@ Deno.serve(async (req: Request) => {
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     if (!profile) return json({ error: 'Profile not found' }, 400);
     const userEmail = profile.email || user.email || null;
+    const userTier = Number(profile.evaluation_tier) || 1;
 
     if (!profile.exchange || !profile.api_key_encrypted || !profile.api_secret_encrypted) {
       return json({ error: 'Exchange not connected' }, 400);
@@ -108,7 +109,11 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Stored credentials cannot be decrypted. Reconnect exchange.' }, 500);
     }
 
-    const phase = phaseConfig.phases.find((p: any) => p.phase === profile.current_phase) || phaseConfig.phases[0];
+    // Resolve tier rules: evaluation_tiers.tiers is an array indexed by tier-1.
+    // Fall back to tier 1 (Bronze) if the user's tier isn't found in the config.
+    const tiers: any[] = evaluationTiers?.tiers || [];
+    const tier = tiers.find((t: any) => t.tier === userTier) || tiers[0];
+    if (!tier) return json({ error: 'Evaluation tiers not configured' }, 500);
 
     // --- LOAD DAILY STATS + LOCKS + POSITIONS + EQUITY ---
     const today = new Date().toISOString().split('T')[0];
@@ -161,9 +166,9 @@ Deno.serve(async (req: Request) => {
     // 2. max positions
     checks.push({ name: 'max_positions', passed: !hasOpenPosition, message: 'Maksimal 1 posisi terbuka', blocking: true, message_en: '' });
     // 3. max trades
-    checks.push({ name: 'max_trades', passed: tradesToday < phase.max_trades, message: `Maksimal ${phase.max_trades} trade hari ini`, blocking: true, message_en: '' });
+    checks.push({ name: 'max_trades', passed: tradesToday < tier.max_trades, message: `Maksimal ${tier.max_trades} trade hari ini (${tier.name})`, blocking: true, message_en: '' });
     // 4. daily loss
-    checks.push({ name: 'daily_loss', passed: dailyLossR < tradingRules.daily_loss_limit_r, message: `Batas kerugian ${tradingRules.daily_loss_limit_r}R`, blocking: true, message_en: '' });
+    checks.push({ name: 'daily_loss', passed: dailyLossR < tier.daily_loss_limit_r, message: `Batas kerugian ${tier.daily_loss_limit_r}R (${tier.name})`, blocking: true, message_en: '' });
     // 5. drawdown
     checks.push({ name: 'total_drawdown', passed: drawdownR < tradingRules.total_drawdown_r, message: `Drawdown ${tradingRules.total_drawdown_r}R`, blocking: true, message_en: '' });
     // 6. account locked
@@ -173,7 +178,7 @@ Deno.serve(async (req: Request) => {
     // 8. risk
     checks.push({ name: 'risk_per_trade', passed: true, message: '', blocking: false, message_en: '' });
     // 9. min rr
-    checks.push({ name: 'min_rr', passed: rrRatio >= phase.min_rr, message: `Min RR 1:${phase.min_rr}`, blocking: true, message_en: '' });
+    checks.push({ name: 'min_rr', passed: rrRatio >= tier.min_rr, message: `Min RR 1:${tier.min_rr} (${tier.name})`, blocking: true, message_en: '' });
 
     // 10. martingale
     const { data: lastClosed } = await supabase.from('trades').select('entry_price,closed_at,symbol').eq('user_id', user.id).eq('status', 'closed').eq('symbol', symbol).order('closed_at', { ascending: false }).limit(1);
@@ -195,11 +200,11 @@ Deno.serve(async (req: Request) => {
     // 12. cooldown
     const { data: lastTradeClosed } = await supabase.from('trades').select('closed_at').eq('user_id', user.id).eq('status', 'closed').order('closed_at', { ascending: false }).limit(1);
     let coolOk = true;
-    if (phase.cooldown_min > 0 && lastTradeClosed && lastTradeClosed.length > 0) {
+    if (tier.cooldown_min > 0 && lastTradeClosed && lastTradeClosed.length > 0) {
       const since = (Date.now() - new Date(lastTradeClosed[0].closed_at!).getTime()) / 60000;
-      coolOk = since >= phase.cooldown_min;
+      coolOk = since >= tier.cooldown_min;
     }
-    checks.push({ name: 'cooldown', passed: coolOk, message: coolOk ? '' : `Cooldown ${phase.cooldown_min} menit`, blocking: true, message_en: '' });
+    checks.push({ name: 'cooldown', passed: coolOk, message: coolOk ? '' : `Cooldown ${tier.cooldown_min} menit (${tier.name})`, blocking: true, message_en: '' });
 
     const failedChecks = checks.filter(c => !c.passed && c.blocking);
     if (failedChecks.length > 0) {
@@ -213,7 +218,8 @@ Deno.serve(async (req: Request) => {
     // marginPct comes from the user's qtyPct slider (25/50/75/100%).
     // 1R risk = 1% of the selected margin portion.
     const effectiveBalance = balance * marginPct;
-    const riskAmount = effectiveBalance * (tradingRules.risk_per_trade_pct / 100);
+    // 1R risk is tier-specific (Bronze 1%, Silver 1%, Gold 1.5%, Platinum 2%).
+    const riskAmount = effectiveBalance * (tier.risk_per_trade_pct / 100);
     const slDistancePct = Math.abs(entryPrice - stopLoss) / entryPrice;
     if (slDistancePct <= 0) return json({ error: 'Invalid stop loss distance' }, 400);
 
@@ -341,7 +347,7 @@ Deno.serve(async (req: Request) => {
 
     // --- AUDIT LOG + RETURN ---
     logAudit(supabase, { userId: user.id, userEmail, action: Action.EXECUTE_TRADE, functionName: 'execute-trade', requestBody: { symbol, side, entryPrice, stopLoss, rrRatio }, responseStatus: 200, responseBody: { symbol, side, entryPrice, quantity: Number(quantity.toFixed(6)), margin: Number(margin.toFixed(2)) } });
-    return json({ success: true, trade, positionDetails: { quantity, margin, takeProfit, riskAmount, potentialProfit: riskAmount * rrRatio, leverage: 1 }, allChecks: checks });
+    return json({ success: true, trade, tier: { tier: tier.tier, name: tier.name, max_trades: tier.max_trades, cooldown_min: tier.cooldown_min, min_rr: tier.min_rr, risk_per_trade_pct: tier.risk_per_trade_pct }, positionDetails: { quantity, margin, takeProfit, riskAmount, potentialProfit: riskAmount * rrRatio, leverage: 1 }, allChecks: checks });
 
   } catch (error: any) {
     // --- CRASH-PROOF CATCH: no variable references, only primitives ---

@@ -78,7 +78,7 @@ export default function AdminUsers() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-mono-num bg-garda-surface text-garda-text-secondary">
-                        P{u.current_phase}
+                        T{u.evaluation_tier}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center text-garda-text-muted font-mono-num">{formatDate(u.created_at)}</td>
