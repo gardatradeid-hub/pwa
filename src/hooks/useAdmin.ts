@@ -45,7 +45,7 @@ export function useAdminConfig() {
 export function useUpdateUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (params: { user_id: string; current_phase?: number; onboarding_completed?: boolean; exchange?: string }) =>
+    mutationFn: (params: { user_id: string; evaluation_tier?: number; current_phase?: number; onboarding_completed?: boolean; exchange?: string }) =>
       adminCall({ action: 'update_user', ...params }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin', 'users'] }); qc.invalidateQueries({ queryKey: ['admin', 'user'] }); },
   });

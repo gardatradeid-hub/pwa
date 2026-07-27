@@ -3,9 +3,12 @@ import { useTheme } from '@/hooks/useTheme';
 import { useAuthContext } from '@/components/AuthProvider';
 import { useUserStore } from '@/store/useUserStore';
 import { useAppStore } from '@/store/useAppStore';
+import { usePhase } from '@/hooks/usePhase';
 import { formatDate } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
-import { User, Globe, Moon, Sun, LogOut, Shield, Bell } from 'lucide-react';
+import { User, Globe, Moon, Sun, LogOut, Shield, Bell, TrendingUp } from 'lucide-react';
+
+const TIER_BG: Record<number, string> = { 1: 'bg-amber-500/10 border-amber-500/30 text-amber-400', 2: 'bg-slate-400/10 border-slate-400/30 text-slate-300', 3: 'bg-yellow-500/10 border-yellow-400/40 text-yellow-400', 4: 'bg-zinc-200/10 border-zinc-400/30 text-zinc-100' };
 
 export default function ProfilePage() {
   const { t, i18n } = useTranslation();
@@ -13,7 +16,7 @@ export default function ProfilePage() {
   const { signOut } = useAuthContext();
   const { profile } = useUserStore();
   const { lang, setLang } = useAppStore();
-  const phase = useUserStore.getState().getCurrentPhase();
+  const { currentTier, nextTier, progress } = usePhase();
 
   const switchLang = (l: 'id' | 'en') => {
     setLang(l);
@@ -57,20 +60,49 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* Phase */}
+      {/* Evaluation Tier */}
       <div className="garda-card p-5">
         <h3 className="text-sm font-medium text-garda-text-secondary mb-4">
-          {t('profile.current_phase')}
+          <TrendingUp className="w-4 h-4 inline mr-1" /> {t('profile.current_tier')}
         </h3>
-        <div className="flex items-center justify-between">
+
+        {/* Tier badge + rules summary */}
+        <div className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border', TIER_BG[currentTier?.tier] ?? TIER_BG[1])}>
+          <div className="w-10 h-10 rounded-full bg-current/10 flex items-center justify-center text-lg font-bold">
+            {currentTier?.tier ?? 1}
+          </div>
           <div>
-            <p className="text-lg font-bold text-garda-cyan">{phase.label}</p>
-            <p className="text-xs text-garda-text-muted">Phase {phase.phase}</p>
+            <p className="font-bold text-base">{currentTier?.name ?? 'Bronze'}</p>
+            <p className="text-xs opacity-80">{currentTier?.max_trades ?? 3} trade/hari · Cooldown {currentTier?.cooldown_min ?? 120}min · Min RR 1:{currentTier?.min_rr ?? 2}</p>
           </div>
-          <div className="text-right">
-            <p className="text-sm font-mono-num">{phase.max_trades} trade/hari</p>
-            <p className="text-xs text-garda-text-muted">Min RR 1:{phase.min_rr}</p>
+        </div>
+
+        {/* Promotion progress (next tier) */}
+        {nextTier && progress.requiredTrades > 0 && (
+          <div className="mt-4 space-y-3">
+            <p className="text-xs text-garda-text-muted">
+              Progress ke <span className="font-semibold">{nextTier.name}</span>
+            </p>
+            <ProgressRow label="Win Rate" current={progress.winRate} required={progress.requiredWinRate} suffix="%" />
+            <ProgressRow label="Trades" current={progress.totalTrades} required={progress.requiredTrades} suffix="" />
+            {progress.requiredProfitFactor != null && (
+              <ProgressRow label="Profit Factor" current={progress.profitFactor} required={progress.requiredProfitFactor} suffix="" />
+            )}
+            {progress.requiredMaxDrawdown != null && (
+              <ProgressRow label="Max Drawdown" current={progress.maxDrawdownR} required={progress.requiredMaxDrawdown} suffix="R" invert />
+            )}
+            {progress.ready && (
+              <p className="text-xs text-garda-cyan font-semibold">🎉 Siap naik ke {nextTier.name}! Server akan auto-promote setelah trade berikutnya ditutup.</p>
+            )}
           </div>
+        )}
+
+        {/* Metrics grid (lifetime) */}
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <MetricBox label="Total Trades" value={progress.totalTrades} />
+          <MetricBox label="Win Rate" value={`${progress.winRate.toFixed(0)}%`} />
+          <MetricBox label="Profit Factor" value={progress.profitFactor.toFixed(2)} />
+          <MetricBox label="Max DD" value={`${progress.maxDrawdownR.toFixed(1)}R`} />
         </div>
       </div>
 
@@ -133,6 +165,33 @@ export default function ProfilePage() {
         className="w-full garda-btn-secondary flex items-center justify-center gap-2 text-garda-pink hover:bg-garda-pink/5">
         <LogOut className="w-4 h-4" /> {t('profile.logout')}
       </button>
+    </div>
+  );
+}
+
+function ProgressRow({ label, current, required, suffix, invert }: { label: string; current: number; required: number; suffix: string; invert?: boolean }) {
+  const pct = required > 0 ? Math.min(100, Math.max(0, (current / required) * 100)) : 0;
+  const met = invert ? current <= required : current >= required;
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-[11px]">
+        <span className="text-garda-text-muted">{label}</span>
+        <span className={cn('font-mono-num', met ? 'text-garda-cyan' : 'text-garda-text-secondary')}>
+          {current.toFixed(suffix === '%' ? 0 : 2)}{suffix} / {required}{suffix}
+        </span>
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-garda-surface">
+        <div className={cn('h-full rounded-full transition-all', met ? 'bg-garda-cyan' : 'bg-garda-text-muted')} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function MetricBox({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="garda-card p-3 space-y-0.5">
+      <p className="text-[10px] text-garda-text-muted">{label}</p>
+      <p className="text-base font-bold font-mono-num">{value}</p>
     </div>
   );
 }

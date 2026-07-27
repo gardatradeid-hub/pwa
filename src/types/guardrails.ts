@@ -29,10 +29,34 @@ export interface AppConfig {
   };
   trading_rules: TradingRules;
   phase_config: PhaseConfig;
+  evaluation_tiers: EvaluationTiersConfig;
   lock_config: LockConfig;
   revenge_config: RevengeConfig;
   supported_pairs: string[];
   supported_exchanges: string[];
+}
+
+export interface EvaluationTiersConfig {
+  tiers: EvaluationTierRule[];
+}
+
+export interface EvaluationTierRule {
+  tier: number;
+  name: string;
+  name_id: string;
+  color: string;
+  icon: string;
+  max_trades: number;
+  cooldown_min: number;
+  min_rr: number;
+  risk_per_trade_pct: number;
+  daily_loss_limit_r: number;
+  promotion: {
+    min_win_rate: number;
+    min_trades: number;
+    min_profit_factor?: number;
+    max_drawdown_pct?: number;
+  } | null;
 }
 
 export interface TradingRules {

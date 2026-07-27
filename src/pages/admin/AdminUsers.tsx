@@ -6,6 +6,25 @@ import { formatDate } from '@/lib/formatters';
 import { Loader2, Search, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+const TIER_COLORS: Record<number, { bg: string; text: string; border: string; label: string }> = {
+  1: { bg: 'bg-amber-900/20', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Bronze' },
+  2: { bg: 'bg-slate-400/15', text: 'text-slate-300', border: 'border-slate-400/30', label: 'Silver' },
+  3: { bg: 'bg-yellow-500/15', text: 'text-yellow-400', border: 'border-yellow-400/40', label: 'Gold' },
+  4: { bg: 'bg-zinc-200/10', text: 'text-zinc-100', border: 'border-zinc-400/30', label: 'Platinum' },
+};
+
+function TierBadge({ tier }: { tier: number }) {
+  const c = TIER_COLORS[tier] ?? TIER_COLORS[1];
+  return (
+    <span className={cn(
+      'px-2 py-0.5 rounded-md text-[10px] font-semibold border',
+      c.bg, c.text, c.border,
+    )}>
+      {c.label}
+    </span>
+  );
+}
+
 export default function AdminUsers() {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
@@ -57,7 +76,7 @@ export default function AdminUsers() {
                   <th className="text-left px-4 py-3 font-medium">{t('admin.col_name')}</th>
                   <th className="text-left px-4 py-3 font-medium">{t('admin.col_email')}</th>
                   <th className="text-left px-4 py-3 font-medium">{t('admin.col_exchange')}</th>
-                  <th className="text-center px-4 py-3 font-medium">{t('admin.col_phase')}</th>
+                  <th className="text-center px-4 py-3 font-medium">{t('admin.col_tier')}</th>
                   <th className="text-center px-4 py-3 font-medium">{t('admin.col_joined')}</th>
                   <th className="text-right px-4 py-3 font-medium"></th>
                 </tr>
@@ -77,9 +96,7 @@ export default function AdminUsers() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono-num bg-garda-surface text-garda-text-secondary">
-                        T{u.evaluation_tier}
-                      </span>
+                      <TierBadge tier={u.evaluation_tier} />
                     </td>
                     <td className="px-4 py-3 text-center text-garda-text-muted font-mono-num">{formatDate(u.created_at)}</td>
                     <td className="px-4 py-3 text-right">
