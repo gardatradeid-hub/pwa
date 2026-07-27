@@ -4,7 +4,7 @@ import { useAdminLogs } from '@/hooks/useAdmin';
 import { Loader2, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const ACTIONS = ['execute_trade', 'close_trade', 'connect_exchange', 'get_ticker', 'get_ohlcv', 'get_balance', 'admin_list_users', 'admin_update_user', 'admin_get_logs', 'admin_update_config'];
+const ACTIONS = ['execute_trade', 'close_trade', 'sync-trade', 'connect_exchange', 'get_ticker', 'get_ohlcv', 'get_balance', 'admin_list_users', 'admin_update_user', 'admin_get_logs', 'admin_update_config'];
 
 export default function AdminAuditLogs() {
   const { t } = useTranslation();

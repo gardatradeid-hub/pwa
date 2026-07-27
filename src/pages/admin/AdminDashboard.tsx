@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import { useAdminUsers } from '@/hooks/useAdmin';
-import { useAdminLogs } from '@/hooks/useAdmin';
-import { Loader2, Users, Activity, TrendingUp, TrendingDown, ArrowUpRight, ShieldCheck } from 'lucide-react';
+import { useAdminUsers, useAdminLogs } from '@/hooks/useAdmin';
+import { Loader2, Users, Activity, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function AdminDashboard() {
   const { t } = useTranslation();
@@ -29,6 +29,10 @@ export default function AdminDashboard() {
     {
       icon: TrendingUp, label: t('admin.stat_trades_exe'), value: String(actions['execute_trade'] || 0),
       color: 'text-garda-cyan', bg: 'bg-garda-cyan/5',
+    },
+    {
+      icon: RefreshCw, label: t('admin.stat_sync_trades'), value: String(actions['sync-trade'] || 0),
+      color: 'text-garda-amber', bg: 'bg-garda-amber/5',
     },
     {
       icon: TrendingDown, label: t('admin.stat_trades_closed'), value: String(actions['close_trade'] || 0),
@@ -107,5 +111,3 @@ export default function AdminDashboard() {
     </div>
   );
 }
-
-import { cn } from '@/lib/utils';

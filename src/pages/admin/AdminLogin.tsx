@@ -53,7 +53,19 @@ export async function adminFetch(action: string, body: Record<string, unknown> =
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (error) throw new Error(error.message);
+  // supabase-js v2 sets `error` for non-2xx but may not parse the
+  // body. Pull it from error.context if present, mirroring ccxt-proxy.
+  if (error) {
+    let bodyData: any = null;
+    try {
+      const ctx: Response | undefined = (error as any).context;
+      if (ctx && typeof ctx.json === 'function') {
+        bodyData = await ctx.clone().json();
+      }
+    } catch (_) {}
+    if (bodyData?.error) throw new Error(bodyData.error);
+    throw new Error(error.message || 'Admin API error');
+  }
   if (data?.error) throw new Error(data.error);
   return data;
 }
