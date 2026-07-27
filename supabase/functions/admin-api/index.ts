@@ -66,8 +66,12 @@ Deno.serve(async (req: Request) => {
 
       if (uErr) return json({ error: 'Failed to fetch users', detail: uErr.message }, 500);
 
+      // Map evaluation_tier -> current_phase for Vercel frontend
+      // (not yet rebuilt after rename). Remove when Vercel redeploys.
+      const mapped = (users || []).map((u: any) => ({ ...u, current_phase: u.evaluation_tier ?? 1 }));
+
       await logAudit(supabase, { userId: 'admin', userEmail: adminEmail, action: Action.ADMIN_LIST_USERS, functionName: 'admin-api', requestBody, responseStatus: 200, ipAddress });
-      return json({ success: true, data: users || [], total: count || 0, page, limit });
+      return json({ success: true, data: mapped, total: count || 0, page, limit });
     }
 
     // ---- get_user ----
@@ -82,10 +86,13 @@ Deno.serve(async (req: Request) => {
         .single();
       if (tErr || !user) return json({ error: 'User not found' }, 404);
 
+      // Inject current_phase alias for Vercel frontend (see list_users).
+      const mappedUser = { ...user, current_phase: user.evaluation_tier ?? 1 };
+
       const { data: trades } = await supabase.from('trades').select('*').eq('user_id', targetId).order('opened_at', { ascending: false }).limit(50);
       const { data: stats } = await supabase.from('daily_stats').select('*').eq('user_id', targetId).order('date', { ascending: false }).limit(30);
 
-      return json({ success: true, data: { user, trades: trades || [], stats: stats || [] } });
+      return json({ success: true, data: { user: mappedUser, trades: trades || [], stats: stats || [] } });
     }
 
     // ---- update_user ----
