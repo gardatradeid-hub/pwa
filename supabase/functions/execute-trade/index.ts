@@ -127,6 +127,7 @@ Deno.serve(async (req: Request) => {
       min_rr: overrides.min_rr ?? tierBase.min_rr,
       risk_per_trade_pct: overrides.risk_per_trade_pct ?? tierBase.risk_per_trade_pct,
       daily_loss_limit_r: overrides.daily_loss_limit_r ?? tierBase.daily_loss_limit_r,
+      leverage: overrides.leverage ?? 1,
     };
 
     // --- LOAD DAILY STATS + LOCKS + POSITIONS + EQUITY ---
@@ -188,7 +189,7 @@ Deno.serve(async (req: Request) => {
     // 6. account locked
     checks.push({ name: 'account_locked', passed: !isLocked, message: 'Akun terkunci', blocking: true, message_en: '' });
     // 7. leverage
-    checks.push({ name: 'leverage', passed: true, message: '', blocking: false, message_en: '' });
+    checks.push({ name: 'leverage', passed: (Number(tier.leverage) || 1) <= 1, message: Number(tier.leverage) > 1 ? `Leverage di-override ke ${tier.leverage}x` : '', blocking: false, message_en: '' });
     // 8. risk
     checks.push({ name: 'risk_per_trade', passed: true, message: '', blocking: false, message_en: '' });
     // 9. min rr
@@ -306,7 +307,7 @@ Deno.serve(async (req: Request) => {
       : quantity;
     const margin = coinQuantity * entryPrice;
 
-    try { await exchange.setLeverage(1, marketSymbol); } catch (_) {}
+    try { await exchange.setLeverage(Number(tier.leverage) || 1, marketSymbol); } catch (_) {}
 
     // Bybit position mode: detect once so entry + SL + TP can attach the
     // correct positionIdx. one-way -> 0 (or omitted), hedge -> 1 long / 2 short.

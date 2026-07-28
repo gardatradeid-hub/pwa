@@ -30,6 +30,7 @@ export default function AdminUserDetail() {
     { key: 'min_rr', label: 'Min RR', tierKey: 'min_rr' },
     { key: 'risk_per_trade_pct', label: 'Risk %', tierKey: 'risk_per_trade_pct' },
     { key: 'daily_loss_limit_r', label: 'Daily Loss Limit (R)', tierKey: 'daily_loss_limit_r' },
+    { key: 'leverage', label: 'Leverage', tierKey: 'leverage' },
   ];
 
   const initialSync = useRef(true);
