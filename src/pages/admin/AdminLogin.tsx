@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '@/config/supabase';
 import { Shield, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 
@@ -72,6 +73,7 @@ export async function adminFetch(action: string, body: Record<string, unknown> =
 
 export default function AdminLogin() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -108,8 +110,8 @@ export default function AdminLogin() {
           <div className="w-16 h-16 rounded-full bg-garda-cyan/10 flex items-center justify-center mx-auto mb-4">
             <Shield className="w-8 h-8 text-garda-cyan" />
           </div>
-          <h1 className="text-2xl font-bold">Admin Panel</h1>
-          <p className="text-sm text-garda-text-secondary mt-1">Masuk dengan akun admin</p>
+          <h1 className="text-2xl font-bold">{t('admin.login_title')}</h1>
+          <p className="text-sm text-garda-text-secondary mt-1">{t('admin.login_subtitle')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -139,11 +141,11 @@ export default function AdminLogin() {
           <button type="submit" disabled={loading}
             className="garda-btn-primary w-full flex items-center justify-center gap-2">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {loading ? 'Memverifikasi...' : 'Masuk'}
+            {loading ? t('admin.login_verifying') : t('admin.login_button')}
           </button>
 
           <p className="text-xs text-garda-text-muted text-center">
-            Kembali ke <a href="/" className="text-garda-cyan hover:underline">Beranda</a>
+            <a href="/" className="text-garda-cyan hover:underline">{t('admin.back_to_home')}</a>
           </p>
         </form>
       </div>

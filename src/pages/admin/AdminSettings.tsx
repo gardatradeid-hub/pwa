@@ -5,6 +5,17 @@ import { adminFetch } from '@/pages/admin/AdminLogin';
 import { Loader2, Save, RotateCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+const CONFIG_LABEL_MAP: Record<string, string> = {
+  evaluation_tiers: 'config_key_evaluation_tiers',
+  trading_rules: 'config_key_trading_rules',
+  phase_config: 'config_key_phase_config',
+  lock_config: 'config_key_lock_config',
+  revenge_config: 'config_key_revenge_config',
+  supported_pairs: 'config_key_supported_pairs',
+  supported_exchanges: 'config_key_supported_exchanges',
+  saas_mode: 'config_key_saas_mode',
+};
+
 export default function AdminSettings() {
   const { t } = useTranslation();
   const { data, isLoading, refetch } = useAdminConfig();
@@ -24,7 +35,8 @@ export default function AdminSettings() {
         key,
         value: typeof value === 'string' ? value : JSON.stringify(value),
       });
-      setMsg(`"${key}" ${t('admin.config_saved')}`);
+      const labelKey = CONFIG_LABEL_MAP[key] || key;
+      setMsg(`"${t(labelKey)}" ${t('admin.config_saved')}`);
       refetch();
     } catch (e: any) { setMsg(e.message || t('common.error')); }
     finally { setSaving(null); }
@@ -75,19 +87,24 @@ function ConfigEditor({
   configKey: string; initialValue: string;
   onSave: (val: string) => void; isSaving: boolean;
 }) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(initialValue);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => { setValue(initialValue); }, [initialValue]);
   const isModified = value !== initialValue;
 
+  const labelKey = CONFIG_LABEL_MAP[configKey] || configKey;
+  const displayName = labelKey.startsWith('config_key_') ? t(labelKey) : configKey;
+
   return (
     <div className="garda-card border-garda-border">
       <button onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-garda-surface/30 transition-colors rounded-xl">
         <div className="flex items-center gap-3">
-          <span className="font-mono-num text-sm font-semibold text-garda-cyan">{configKey}</span>
-          {isModified && <span className="text-[10px] text-garda-amber font-medium">(modified)</span>}
+          <span className="text-sm font-semibold text-garda-cyan">{displayName}</span>
+          <span className="text-[10px] text-garda-text-muted font-mono-num">{configKey}</span>
+          {isModified && <span className="text-[10px] text-garda-amber font-medium">{t('admin.config_modified')}</span>}
         </div>
         <RotateCw className={cn('w-3.5 h-3.5 text-garda-text-muted transition-transform', expanded && 'rotate-180')} />
       </button>
@@ -95,13 +112,18 @@ function ConfigEditor({
         <div className="px-4 pb-4 space-y-3">
           <textarea value={value} onChange={(e) => setValue(e.target.value)}
             className="garda-input w-full font-mono-num text-xs h-[120px] resize-y bg-garda-bg" />
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setValue(initialValue); }}
+              disabled={!isModified}
+              className="garda-btn-ghost py-1.5 px-3 text-xs">
+              {t('common.cancel')}
+            </button>
             <button onClick={() => onSave(value)} disabled={!isModified || isSaving}
               className="garda-btn-primary py-1.5 px-4 text-xs flex items-center gap-1.5">
               {isSaving
                 ? <Loader2 className="w-3 h-3 animate-spin" />
                 : <Save className="w-3 h-3" />}
-              Simpan
+              {t('admin.config_save_button')}
             </button>
           </div>
         </div>

@@ -19,24 +19,24 @@ export default function AdminDashboard() {
 
   const stats = [
     {
-      icon: Users, label: t('admin.stat_total_users'), value: usersLoading ? '...' : String(totalUsers),
+      icon: Users, label: t('admin.stat_total_traders'), value: usersLoading ? '...' : String(totalUsers),
       color: 'text-garda-cyan', bg: 'bg-garda-cyan/5',
     },
     {
-      icon: Activity, label: t('admin.stat_api_calls'), value: logsLoading ? '...' : String(totalLogs),
-      color: 'text-garda-amber', bg: 'bg-garda-amber/5',
-    },
-    {
-      icon: TrendingUp, label: t('admin.stat_trades_exe'), value: String(actions['execute_trade'] || 0),
+      icon: TrendingUp, label: t('admin.stat_trades_executed'), value: logsLoading ? '...' : String(actions['execute_trade'] || 0),
       color: 'text-garda-cyan', bg: 'bg-garda-cyan/5',
-    },
-    {
-      icon: RefreshCw, label: t('admin.stat_sync_trades'), value: String(actions['sync-trade'] || 0),
-      color: 'text-garda-amber', bg: 'bg-garda-amber/5',
     },
     {
       icon: TrendingDown, label: t('admin.stat_trades_closed'), value: String(actions['close_trade'] || 0),
       color: 'text-garda-pink', bg: 'bg-garda-pink/5',
+    },
+    {
+      icon: Activity, label: t('admin.stat_errors'), value: String(latestLogs.filter((l: any) => (l.response_status || 0) >= 400).length),
+      color: 'text-garda-amber', bg: 'bg-garda-amber/5',
+    },
+    {
+      icon: RefreshCw, label: t('admin.stat_sync_trades'), value: String(actions['sync-trade'] || 0),
+      color: 'text-garda-amber', bg: 'bg-garda-amber/5',
     },
   ];
 

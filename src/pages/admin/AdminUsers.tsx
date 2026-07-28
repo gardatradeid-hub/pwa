@@ -7,10 +7,10 @@ import { Loader2, Search, ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { cn } from '@/lib/utils';
 
 const TIER_COLORS: Record<number, { bg: string; text: string; border: string; label: string }> = {
-  1: { bg: 'bg-amber-900/20', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Bronze' },
-  2: { bg: 'bg-slate-400/15', text: 'text-slate-300', border: 'border-slate-400/30', label: 'Silver' },
-  3: { bg: 'bg-yellow-500/15', text: 'text-yellow-400', border: 'border-yellow-400/40', label: 'Gold' },
-  4: { bg: 'bg-zinc-200/10', text: 'text-zinc-100', border: 'border-zinc-400/30', label: 'Platinum' },
+  1: { bg: 'bg-garda-text-muted/10', text: 'text-garda-text-muted', border: 'border-garda-text-muted/20', label: 'Bronze' },
+  2: { bg: 'bg-garda-text-secondary/10', text: 'text-garda-text-secondary', border: 'border-garda-text-secondary/20', label: 'Silver' },
+  3: { bg: 'bg-garda-amber/10', text: 'text-garda-amber', border: 'border-garda-amber/30', label: 'Gold' },
+  4: { bg: 'bg-garda-cyan/10', text: 'text-garda-cyan', border: 'border-garda-cyan/30', label: 'Platinum' },
 };
 
 function TierBadge({ tier }: { tier: number }) {

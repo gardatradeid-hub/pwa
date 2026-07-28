@@ -71,15 +71,6 @@ export interface EvaluationTier {
     max_drawdown_pct?: number;
   } | null;
 }
-  phase: number;
-  label: string;
-  label_en: string;
-  max_trades: number;
-  cooldown_min: number;
-  min_rr: number;
-  unlock_wr?: number;
-  unlock_trades?: number;
-}
 
 export interface AuthState {
   session: Session | null;

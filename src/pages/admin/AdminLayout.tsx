@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { Shield, Users, Activity, Settings, LogOut, ChevronLeft } from 'lucide-react';
+import { Shield, Users, Activity, Settings, LogOut, ChevronLeft, TrendingUp } from 'lucide-react';
 import { clearAdminToken } from '@/pages/admin/AdminLogin';
 
 export default function AdminLayout() {
@@ -9,9 +9,9 @@ export default function AdminLayout() {
   const navigate = useNavigate();
 
   const nav = [
-    { to: '/admin',        icon: Shield,   label: t('admin.nav_dashboard') },
-    { to: '/admin/users',  icon: Users,    label: t('admin.nav_users') },
-    { to: '/admin/logs',   icon: Activity, label: t('admin.nav_logs') },
+    { to: '/admin',        icon: TrendingUp, label: t('admin.nav_dashboard') },
+    { to: '/admin/users',  icon: Users,      label: t('admin.nav_users') },
+    { to: '/admin/logs',   icon: Activity,   label: t('admin.nav_logs') },
     { to: '/admin/settings', icon: Settings, label: t('admin.nav_settings') },
   ];
 

@@ -104,7 +104,7 @@ export default function AdminUserDetail() {
                   ? 'bg-garda-cyan/10 border-garda-cyan text-garda-cyan'
                   : 'border-garda-border text-garda-text-secondary',
               )}>
-              {onboarding ? '✓ Completed' : '✗ Not Completed'}
+              {onboarding ? '✓ ' + t('profile.connected') : '✗ ' + t('admin.onboarding')}
             </button>
           </div>
           <div className="flex items-end">
