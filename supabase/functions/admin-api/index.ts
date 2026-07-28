@@ -82,6 +82,7 @@ Deno.serve(async (req: Request) => {
       const { data: user, error: tErr } = await supabase
         .from('profiles')
         .select('id, full_name, email, avatar_url, exchange, evaluation_tier, evaluation_metrics, rule_overrides, is_early_adopter, subscription_plan, onboarding_completed, preferred_lang, preferred_theme, auth_provider, created_at, updated_at')
+        .eq('id', targetId)
         .single();
       if (tErr || !user) return json({ error: 'User not found' }, 404);
 
