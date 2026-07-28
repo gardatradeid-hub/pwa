@@ -316,7 +316,8 @@
     "faq_how_start_a": "Daftar akun GARDA dengan Google atau email. Di dashboard, pilih exchange Anda dan masukkan API key dengan permission Read + Trade (Withdraw dinonaktifkan). Setelah terverifikasi, Anda bisa langsung trading.",
     "final_headline": "Strategi Bukan Masalah Anda.\nDisiplin Adalah Masalah Anda.",
     "final_subheadline": "GARDA tidak menjanjikan profit. GARDA membantu Anda berhenti menghancurkan akun karena keputusan impulsif.",
-    "final_cta": "Mulai Gratis"
+    "final_cta": "Mulai Gratis",
+    "vs_without_label": "Tanpa Garda"
   },
   "common": {
     "save": "Simpan",

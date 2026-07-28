@@ -27,39 +27,20 @@ export function LandingNavbar() {
   };
 
   return (
-    <nav
-      className={cn(
-        'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
-        scrolled
-          ? 'bg-garda-bg/95 backdrop-blur-md border-b border-garda-border'
-          : 'bg-transparent'
-      )}
-    >
+    <nav className={cn(
+      'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
+      scrolled
+        ? 'bg-garda-bg/95 backdrop-blur-md border-b border-garda-border'
+        : 'bg-transparent',
+    )}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 shrink-0">
-            <span className="text-2xl font-bold text-garda-cyan">
-              Garda
-            </span>
+            <span className="text-2xl font-bold text-garda-cyan">Garda</span>
           </Link>
 
-          {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-4">
-            <a href="#features" className="text-sm text-garda-text-secondary hover:text-garda-text transition-colors">
-              {t('landing.features_title').substring(0, 20)}...
-            </a>
-            <a href="#how" className="text-sm text-garda-text-secondary hover:text-garda-text transition-colors">
-              {t('landing.how_title')}
-            </a>
-            <a href="#pricing" className="text-sm text-garda-text-secondary hover:text-garda-text transition-colors">
-              {t('landing.pricing_title')}
-            </a>
-            <a href="#faq" className="text-sm text-garda-text-secondary hover:text-garda-text transition-colors">
-              FAQ
-            </a>
-          </div>
-
+          {/* Desktop right side */}
           <div className="hidden md:flex items-center gap-3">
             {/* Language toggle */}
             <button
@@ -92,10 +73,7 @@ export function LandingNavbar() {
           </div>
 
           {/* Mobile menu button */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="md:hidden p-2 text-garda-text"
-          >
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden p-2 text-garda-text">
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
@@ -105,12 +83,6 @@ export function LandingNavbar() {
       {mobileOpen && (
         <div className="md:hidden border-t border-garda-border bg-garda-bg/95 backdrop-blur-md">
           <div className="px-4 py-4 space-y-3">
-            <a href="#features" onClick={() => setMobileOpen(false)} className="block py-2 text-sm text-garda-text-secondary">
-              Features
-            </a>
-            <a href="#how" onClick={() => setMobileOpen(false)} className="block py-2 text-sm text-garda-text-secondary">
-              {t('landing.how_title')}
-            </a>
             <Link to="/login" onClick={() => setMobileOpen(false)} className="block py-2 text-sm text-garda-text-secondary">
               {t('auth.login')}
             </Link>
