@@ -1,13 +1,13 @@
 import { useTranslation } from 'react-i18next';
 import { useTimer } from '@/hooks/useTimer';
 import { useTradeStore } from '@/store/useTradeStore';
-import { useUserStore } from '@/store/useUserStore';
+import { usePhase } from '@/hooks/usePhase';
 import { Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 export function CooldownCard() {
   const { t } = useTranslation();
   const { cooldownUntil } = useTradeStore();
-  const phase = useUserStore.getState().getCurrentPhase();
+  const { currentTier } = usePhase();
   const timer = useTimer(cooldownUntil);
 
   if (!cooldownUntil || timer.isExpired) return null;
@@ -37,7 +37,7 @@ export function CooldownCard() {
       <div className="flex items-center gap-2 p-3 rounded-lg bg-garda-surface mb-4">
         <AlertTriangle className="w-4 h-4 text-garda-text-muted" />
         <p className="text-xs text-garda-text-secondary">
-          Phase {phase.phase}: Cooldown {phase.cooldown_min} menit antar trade
+          {currentTier?.name ?? 'Bronze'}: Cooldown {currentTier?.cooldown_min ?? 120} menit antar trade
         </p>
       </div>
 

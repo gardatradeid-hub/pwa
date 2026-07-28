@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useAdminUsers, useAdminLogs } from '@/hooks/useAdmin';
-import { Loader2, Users, Activity, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { Loader2, Users, Activity, TrendingUp, TrendingDown, RefreshCw, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function AdminDashboard() {

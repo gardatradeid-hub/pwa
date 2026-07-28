@@ -27,7 +27,7 @@ export default function Dashboard() {
   const [consecutiveLosses, setConsecutiveLosses] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  const phase = useUserStore.getState().getCurrentPhase();
+  const phase = { max_trades: 3, name: 'Bronze', cooldown_min: 120, min_rr: 2.0 };
   const cooldown = useTimer(cooldownUntil);
 
   // Fetch dashboard data

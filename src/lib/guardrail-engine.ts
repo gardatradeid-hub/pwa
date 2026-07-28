@@ -1,4 +1,3 @@
-import { useUserStore } from '@/store/useUserStore';
 import { useTradeStore } from '@/store/useTradeStore';
 import { DEFAULT_TRADING_RULES } from '@/config/constants';
 import type { GuardrailCheck } from '@/types/guardrails';
@@ -43,7 +42,9 @@ export interface GuardrailContext {
  */
 export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] {
   const rules = DEFAULT_TRADING_RULES;
-  const phase = useUserStore.getState().getCurrentPhase();
+  // Default tier values (Bronze / tier 1) for client-side preview.
+  // Server uses evaluation_tiers from app_config + profile.evaluation_tier.
+  const tierDefaults = { max_trades: 3, min_rr: 2.0, cooldown_min: 120, risk_per_trade_pct: 1.0 };
   const checks: GuardrailCheck[] = [];
 
   // 1. Max open positions
@@ -58,9 +59,9 @@ export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] 
   // 2. Max trades per day
   checks.push({
     name: 'max_trades',
-    passed: context.tradesToday < phase.max_trades,
-    message: `Maksimal ${phase.max_trades} trade hari ini. Terpakai: ${context.tradesToday}`,
-    message_en: `Max ${phase.max_trades} trades today. Used: ${context.tradesToday}`,
+    passed: context.tradesToday < tierDefaults.max_trades,
+    message: `Maksimal ${tierDefaults.max_trades} trade hari ini. Terpakai: ${context.tradesToday}`,
+    message_en: `Max ${tierDefaults.max_trades} trades today. Used: ${context.tradesToday}`,
     blocking: true,
   });
 
@@ -124,12 +125,12 @@ export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] 
 
   // 9. Minimum RR ratio (preview only — server re-validates).
   const rr = context.form?.rrRatio;
-  const rrOk = rr == null ? true : rr >= phase.min_rr;
+  const rrOk = rr == null ? true : rr >= tierDefaults.min_rr;
   checks.push({
     name: 'min_rr',
     passed: rrOk,
-    message: `Minimal RR 1:${phase.min_rr} untuk Phase ${phase.phase}`,
-    message_en: `Minimum RR 1:${phase.min_rr} for Phase ${phase.phase}`,
+    message: `Minimal RR 1:${tierDefaults.min_rr}`,
+    message_en: `Minimum RR 1:${tierDefaults.min_rr}`,
     blocking: true,
   });
 

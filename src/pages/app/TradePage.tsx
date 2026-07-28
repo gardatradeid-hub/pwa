@@ -284,7 +284,9 @@ function OrderPanel({ balance, ticker, maxTrades, tradesToday, activeTrade, isLo
 export default function TradePage() {
   const { t } = useTranslation(); const navigate = useNavigate();
   const { balance, setBalance } = useUserStore(); const tradeStore = useTradeStore();
-  const phase = useUserStore.getState().getCurrentPhase();
+  // Default tier values for client-side preview (server is authoritative).
+  // After execution, result.tier from the server overrides this.
+  const phase = useMemo(() => ({ max_trades: 3, name: 'Bronze' }), []);
   const { toasts, addToast, removeToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [tf, setTf] = useState('15m');
