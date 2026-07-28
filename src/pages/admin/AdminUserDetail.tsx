@@ -15,6 +15,8 @@ export default function AdminUserDetail() {
   const [tier, setTier] = useState<number>(1);
   const [exchange, setExchange] = useState('');
   const [onboarding, setOnboarding] = useState(false);
+  const [ruleOverrides, setRuleOverrides] = useState<Record<string, number | null>>({});
+  const [showRules, setShowRules] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -22,20 +24,44 @@ export default function AdminUserDetail() {
   const trades = !isLoading ? (data?.data?.trades ?? []) : [];
   const stats = !isLoading ? (data?.data?.stats ?? []) : [];
 
+  const RULE_FIELDS: { key: string; label: string; tierKey: string }[] = [
+    { key: 'max_trades', label: 'Max Trades / Day', tierKey: 'max_trades' },
+    { key: 'cooldown_min', label: 'Cooldown (min)', tierKey: 'cooldown_min' },
+    { key: 'min_rr', label: 'Min RR', tierKey: 'min_rr' },
+    { key: 'risk_per_trade_pct', label: 'Risk %', tierKey: 'risk_per_trade_pct' },
+    { key: 'daily_loss_limit_r', label: 'Daily Loss Limit (R)', tierKey: 'daily_loss_limit_r' },
+  ];
+
   const initialSync = useRef(true);
   if (user && initialSync.current) {
     initialSync.current = false;
     if (user.evaluation_tier && tier === 1) setTier(user.evaluation_tier);
     if (user.exchange && !exchange) setExchange(user.exchange);
     if (user.onboarding_completed !== undefined && onboarding === false) setOnboarding(user.onboarding_completed);
+    if (user.rule_overrides && typeof user.rule_overrides === 'object') {
+      const ro: Record<string, number | null> = {};
+      for (const f of RULE_FIELDS) {
+        if (user.rule_overrides[f.key] != null) ro[f.key] = user.rule_overrides[f.key];
+      }
+      setRuleOverrides(ro);
+    }
   }
 
   const handleSave = async () => {
     setSaving(true); setMsg(null);
     try {
+      // Build clean overrides object (omit nulls — they mean "use default")
+      const cleanOverrides: Record<string, number> = {};
+      for (const f of RULE_FIELDS) {
+        const v = ruleOverrides[f.key];
+        if (v != null && typeof v === 'number' && Number.isFinite(v)) {
+          cleanOverrides[f.key] = v;
+        }
+      }
       await updateUser.mutateAsync({
         user_id: user.id,
         evaluation_tier: tier,
+        rule_overrides: Object.keys(cleanOverrides).length > 0 ? cleanOverrides : undefined,
         exchange: exchange || undefined,
         onboarding_completed: onboarding,
       });
@@ -114,6 +140,45 @@ export default function AdminUserDetail() {
             </button>
           </div>
         </div>
+
+        {/* Rule Overrides (collapsible) */}
+        <div>
+          <button type="button" onClick={() => setShowRules(!showRules)}
+            className="flex items-center gap-2 text-xs text-garda-cyan hover:underline mb-2">
+            {showRules ? '▼' : '▶'} Rule Overrides
+            {Object.keys(ruleOverrides).length > 0 && (
+              <span className="px-1.5 py-0.5 rounded bg-garda-cyan/10 text-garda-cyan text-[10px] font-medium">
+                {Object.keys(ruleOverrides).length} custom
+              </span>
+            )}
+          </button>
+          {showRules && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 rounded-lg bg-garda-surface/30 border border-garda-border">
+              <p className="col-span-full text-[10px] text-garda-text-muted mb-1">
+                Set a value to override the tier default for this trader only. Leave empty to use tier defaults.
+              </p>
+              {RULE_FIELDS.map((f) => (
+                <div key={f.key}>
+                  <label className="block text-[10px] font-medium text-garda-text-secondary mb-1">{f.label}</label>
+                  <input
+                    type="number" step="any"
+                    value={ruleOverrides[f.key] ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setRuleOverrides(prev => ({
+                        ...prev,
+                        [f.key]: val === '' ? null : Number(val),
+                      }));
+                    }}
+                    placeholder="Use tier default"
+                    className="garda-input w-full py-1.5 text-xs"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {msg && (
           <p className={cn('text-xs', msg === t('admin.saved') ? 'text-garda-cyan' : 'text-garda-pink')}>{msg}</p>
         )}

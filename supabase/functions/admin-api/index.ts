@@ -81,8 +81,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: user, error: tErr } = await supabase
         .from('profiles')
-        .select('id, full_name, email, avatar_url, exchange, evaluation_tier, evaluation_metrics, is_early_adopter, subscription_plan, onboarding_completed, preferred_lang, preferred_theme, auth_provider, created_at, updated_at')
-        .eq('id', targetId)
+        .select('id, full_name, email, avatar_url, exchange, evaluation_tier, evaluation_metrics, rule_overrides, is_early_adopter, subscription_plan, onboarding_completed, preferred_lang, preferred_theme, auth_provider, created_at, updated_at')
         .single();
       if (tErr || !user) return json({ error: 'User not found' }, 404);
 
@@ -97,13 +96,12 @@ Deno.serve(async (req: Request) => {
 
     // ---- update_user ----
     if (action === 'update_user') {
-      // Accept both `evaluation_tier` (new name) and `current_phase` (legacy
-      // until the admin UI is rebuilt). DB column is `evaluation_tier`.
-      const { user_id, evaluation_tier, current_phase, onboarding_completed, exchange } = body;
+      const { user_id, evaluation_tier, current_phase, rule_overrides, onboarding_completed, exchange } = body;
       if (!user_id) return json({ error: 'user_id required' }, 400);
       const updates: Record<string, unknown> = {};
       const tier = evaluation_tier ?? current_phase;
       if (tier !== undefined) updates.evaluation_tier = tier;
+      if (rule_overrides !== undefined) updates.rule_overrides = rule_overrides;
       if (onboarding_completed !== undefined) updates.onboarding_completed = onboarding_completed;
       if (exchange !== undefined) updates.exchange = exchange;
       if (Object.keys(updates).length === 0) return json({ error: 'No fields to update' }, 400);

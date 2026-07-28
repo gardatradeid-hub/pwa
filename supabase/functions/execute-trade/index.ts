@@ -112,8 +112,22 @@ Deno.serve(async (req: Request) => {
     // Resolve tier rules: evaluation_tiers.tiers is an array indexed by tier-1.
     // Fall back to tier 1 (Bronze) if the user's tier isn't found in the config.
     const tiers: any[] = evaluationTiers?.tiers || [];
-    const tier = tiers.find((t: any) => t.tier === userTier) || tiers[0];
-    if (!tier) return json({ error: 'Evaluation tiers not configured' }, 500);
+    const tierBase = tiers.find((t: any) => t.tier === userTier) || tiers[0];
+    if (!tierBase) return json({ error: 'Evaluation tiers not configured' }, 500);
+
+    // Per-user rule overrides (admin-configurable). If a field exists in
+    // profile.rule_overrides it REPLACES the tier default for that user only.
+    const overrides: Record<string, any> = (profile.rule_overrides && typeof profile.rule_overrides === 'object')
+      ? profile.rule_overrides
+      : {};
+    const tier = {
+      ...tierBase,
+      max_trades: overrides.max_trades ?? tierBase.max_trades,
+      cooldown_min: overrides.cooldown_min ?? tierBase.cooldown_min,
+      min_rr: overrides.min_rr ?? tierBase.min_rr,
+      risk_per_trade_pct: overrides.risk_per_trade_pct ?? tierBase.risk_per_trade_pct,
+      daily_loss_limit_r: overrides.daily_loss_limit_r ?? tierBase.daily_loss_limit_r,
+    };
 
     // --- LOAD DAILY STATS + LOCKS + POSITIONS + EQUITY ---
     const today = new Date().toISOString().split('T')[0];
