@@ -9,10 +9,10 @@ export default function AdminLayout() {
   const navigate = useNavigate();
 
   const nav = [
-    { to: '/admin',        icon: TrendingUp, label: t('admin.nav_dashboard') },
-    { to: '/admin/users',  icon: Users,      label: t('admin.nav_users') },
-    { to: '/admin/logs',   icon: Activity,   label: t('admin.nav_logs') },
-    { to: '/admin/settings', icon: Settings, label: t('admin.nav_settings') },
+    { to: '/admin',        icon: TrendingUp, label: 'Dashboard' },
+    { to: '/admin/users',  icon: Users,      label: 'Traders' },
+    { to: '/admin/logs',   icon: Activity,   label: 'Activity Log' },
+    { to: '/admin/settings', icon: Settings, label: 'Configuration' },
   ];
 
   return (
