@@ -8,21 +8,25 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/* ================================================================
-   DESIGN LANGUAGE — Garda (soft, elegant, trust-focused)
-   ================================================================
-   Colors:   cyan=#00E5C3  pink=#FF0080  amber=#EF9F27
-   Cards:    backdrop-blur-sm + subtle border + soft shadow
-   Glow:     radial gradient behind hero headline
-   Typography: Inter for body, JetBrains Mono for numbers
-*/
-
-/* ── Section wrapper helper ── */
+/* ── Soft Section wrapper ── */
 function Section({ children, alt, className }: { children: React.ReactNode; alt?: boolean; className?: string }) {
   return (
-    <section className={cn('py-24 px-4 sm:px-6 lg:px-8', alt ? 'bg-garda-surface/50' : '', className)}>
+    <section className={cn('py-24 px-4 sm:px-6 lg:px-8', alt ? 'bg-garda-surface/30' : '', className)}>
       <div className="max-w-6xl mx-auto">{children}</div>
     </section>
+  );
+}
+
+/* ── Soft Card (transparent, no solid #1A1A2E) ── */
+function SoftCard({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn(
+      'rounded-2xl border border-garda-border/40 backdrop-blur-sm p-6',
+      'hover:border-garda-border-hover/50 transition-all duration-300',
+      className,
+    )}>
+      {children}
+    </div>
   );
 }
 
@@ -33,37 +37,33 @@ function HeroSection() {
   const { t } = useTranslation();
   return (
     <section className="relative pt-36 pb-24 px-4 sm:px-6 lg:px-8 overflow-hidden">
-      {/* Soft cyan glow behind headline */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] rounded-full bg-garda-cyan/5 blur-[120px] pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[600px] rounded-full bg-garda-cyan/[0.03] blur-[140px] pointer-events-none" />
+      <div className="absolute top-20 right-[15%] w-[300px] h-[300px] rounded-full bg-garda-pink/[0.03] blur-[100px] pointer-events-none" />
 
       <div className="relative max-w-3xl mx-auto text-center">
-        {/* Badge — pill with glow */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-garda-cyan/10 border border-garda-cyan/25 text-sm text-garda-cyan mb-8 font-medium backdrop-blur-sm">
           <Sparkles className="w-4 h-4" />
           <span>{t('landing.badge')}</span>
         </div>
 
-        {/* Headline — refined spacing */}
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.08] tracking-tight">
           <span className="block">{t('landing.hero_headline').split('\n')[0]}</span>
           <span className="block text-garda-cyan">{t('landing.hero_headline').split('\n')[1]}</span>
         </h1>
 
-        <p className="mt-6 text-lg text-garda-text-secondary max-w-2xl mx-auto leading-relaxed">
+        <p className="mt-6 text-lg text-garda-text-secondary/80 max-w-2xl mx-auto leading-relaxed">
           {t('landing.hero_subheadline')}
         </p>
 
-        {/* Trust badges — soft glass cards */}
         <div className="mt-10 flex flex-wrap justify-center gap-3">
           {[t('landing.trust_funds'), t('landing.trust_api'), t('landing.trust_exchanges'), t('landing.trust_free')].map((item, i) => (
-            <span key={i} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-garda-surface/70 backdrop-blur-sm border border-garda-border text-sm text-garda-text-secondary">
+            <span key={i} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-garda-border/30 backdrop-blur-sm text-sm text-garda-text-secondary/80">
               <Check className="w-4 h-4 text-garda-cyan" />
               {item}
             </span>
           ))}
         </div>
 
-        {/* CTA */}
         <div className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link to="/register" className="inline-flex items-center gap-2 bg-garda-cyan hover:bg-garda-cyan/90 text-garda-bg font-semibold rounded-xl px-8 py-4 text-lg transition-all duration-200 shadow-lg shadow-garda-cyan/20 hover:shadow-garda-cyan/30 active:scale-[0.98]">
             {t('landing.cta')} <ArrowRight className="w-5 h-5" />
@@ -91,7 +91,7 @@ function ProblemSection() {
         <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
           {t('landing.problem_title')}
         </h2>
-        <p className="mt-4 text-garda-text-secondary max-w-xl mx-auto">
+        <p className="mt-4 text-garda-text-secondary/70 max-w-xl mx-auto">
           {t('landing.problem_subtitle')}
         </p>
       </div>
@@ -99,27 +99,22 @@ function ProblemSection() {
       <div className="grid md:grid-cols-3 gap-6">
         {problems.map((p, i) => (
           <div key={i} className={cn(
-            'group relative garda-card p-6 border transition-all duration-300',
-            'hover:scale-[1.02] hover:shadow-xl',
-            i === 0 && 'border-garda-pink/15 hover:border-garda-pink/30 hover:shadow-garda-pink/5',
-            i === 1 && 'border-garda-amber/15 hover:border-garda-amber/30 hover:shadow-garda-amber/5',
-            i === 2 && 'border-garda-pink/15 hover:border-garda-pink/30 hover:shadow-garda-pink/5',
+            'group rounded-2xl border backdrop-blur-sm p-6 transition-all duration-300',
+            'hover:scale-[1.01]',
+            i === 0 && 'border-garda-pink/15 hover:border-garda-pink/25',
+            i === 1 && 'border-garda-amber/15 hover:border-garda-amber/25',
+            i === 2 && 'border-garda-pink/15 hover:border-garda-pink/25',
           )}>
-            {/* Icon with soft background */}
-            <div className={cn(
-              'w-12 h-12 rounded-2xl flex items-center justify-center mb-5',
-              'bg-garda-cyan/5 border border-garda-cyan/15',
-            )}>
+            <div className="w-12 h-12 rounded-2xl bg-garda-cyan/[0.06] border border-garda-cyan/[0.12] flex items-center justify-center mb-5">
               <p.icon className={cn('w-5 h-5', p.accent === 'garda-pink' ? 'text-garda-pink' : 'text-garda-amber')} />
             </div>
-
             <h3 className="text-lg font-bold mb-2.5">{p.title}</h3>
-            <p className="text-garda-text-secondary text-sm leading-relaxed">{p.desc}</p>
+            <p className="text-garda-text-secondary/70 text-sm leading-relaxed">{p.desc}</p>
           </div>
         ))}
       </div>
 
-      <p className="mt-12 text-center text-garda-amber/80 font-medium text-sm">
+      <p className="mt-12 text-center text-garda-amber/70 font-medium text-sm">
         {t('landing.problem_closing')}
       </p>
     </Section>
@@ -145,18 +140,15 @@ function HowItWorksSection() {
         </h2>
       </div>
 
-      {/* Horizontal steps with connecting line */}
       <div className="relative grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Connecting line (desktop only) */}
-        <div className="hidden lg:block absolute top-8 left-[12%] right-[12%] h-px bg-garda-border" />
+        <div className="hidden lg:block absolute top-8 left-[12%] right-[12%] h-px bg-garda-border/30" />
         {steps.map((s, i) => (
           <div key={i} className="relative text-center group">
-            {/* Step number circle */}
-            <div className="relative z-10 w-16 h-16 mx-auto rounded-2xl bg-garda-cyan/10 border border-garda-cyan/20 flex items-center justify-center mb-5 group-hover:bg-garda-cyan/20 group-hover:border-garda-cyan/40 transition-all duration-300">
+            <div className="relative z-10 w-16 h-16 mx-auto rounded-2xl bg-garda-cyan/[0.06] border border-garda-cyan/[0.15] flex items-center justify-center mb-5 group-hover:bg-garda-cyan/[0.12] group-hover:border-garda-cyan/30 transition-all duration-300">
               <span className="text-xl font-bold text-garda-cyan font-mono-num">{s.step}</span>
             </div>
             <h3 className="font-bold text-sm mb-2">{s.title}</h3>
-            <p className="text-garda-text-secondary text-xs leading-relaxed max-w-[220px] mx-auto">{s.desc}</p>
+            <p className="text-garda-text-secondary/70 text-xs leading-relaxed max-w-[220px] mx-auto">{s.desc}</p>
           </div>
         ))}
       </div>
@@ -165,7 +157,7 @@ function HowItWorksSection() {
 }
 
 /* ================================================================
-   SECTION 4 — COMPARISON TABLE (elegant card-style)
+   SECTION 4 — COMPARISON
    ================================================================ */
 function ComparisonSection() {
   const { t } = useTranslation();
@@ -182,30 +174,28 @@ function ComparisonSection() {
         <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
           {t('landing.vs_title')}
         </h2>
-        <p className="mt-4 text-garda-text-secondary max-w-xl mx-auto">
+        <p className="mt-4 text-garda-text-secondary/70 max-w-xl mx-auto">
           {t('landing.vs_subtitle')}
         </p>
       </div>
 
-      {/* Card-style comparison — not a raw table */}
-      <div className="max-w-2xl mx-auto space-y-3">
-        {/* Header */}
-        <div className="flex items-center px-5 py-3 text-sm font-semibold text-garda-text-muted">
+      <div className="max-w-2xl mx-auto space-y-2">
+        <div className="flex items-center px-5 py-3 text-xs font-semibold text-garda-text-muted uppercase tracking-wider">
           <span className="flex-1">{t('landing.vs_col_feature')}</span>
           <span className="w-32 text-center">{t('landing.vs_without_label')}</span>
           <span className="w-32 text-center text-garda-cyan">Garda</span>
         </div>
 
         {rows.map((r, i) => (
-          <div key={i} className="flex items-center px-5 py-4 rounded-xl bg-garda-surface/50 border border-garda-border hover:border-garda-cyan/20 transition-all duration-200">
+          <div key={i} className="flex items-center px-5 py-4 rounded-2xl border border-garda-border/30 backdrop-blur-sm hover:border-garda-cyan/20 transition-all duration-200">
             <span className="flex-1 font-medium text-sm">{r.label}</span>
-            <span className="w-32 text-center text-garda-text-muted text-sm line-through decoration-garda-pink/30">{r.without}</span>
+            <span className="w-32 text-center text-garda-text-muted/60 text-sm line-through decoration-garda-pink/20">{r.without}</span>
             <span className="w-32 text-center text-garda-cyan font-semibold text-sm">{r.garda}</span>
           </div>
         ))}
       </div>
 
-      <p className="mt-10 text-center text-garda-amber/70 text-sm font-medium">
+      <p className="mt-10 text-center text-garda-amber/60 text-sm font-medium">
         {t('landing.vs_closing')}
       </p>
     </Section>
@@ -213,7 +203,7 @@ function ComparisonSection() {
 }
 
 /* ================================================================
-   SECTION 5 — TRUST & SECURITY
+   SECTION 5 — TRUST
    ================================================================ */
 function TrustSection() {
   const { t } = useTranslation();
@@ -232,25 +222,23 @@ function TrustSection() {
         </h2>
       </div>
 
-      {/* 3 trust pillars */}
       <div className="grid sm:grid-cols-3 gap-6 mb-16">
         {pillars.map((p, i) => (
-          <div key={i} className="garda-card p-6 text-center border-garda-cyan/10 hover:border-garda-cyan/25 transition-all duration-300">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-garda-cyan/10 flex items-center justify-center mb-5">
+          <div key={i} className="rounded-2xl border border-garda-cyan/10 backdrop-blur-sm p-6 text-center hover:border-garda-cyan/20 transition-all duration-300">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-garda-cyan/[0.06] border border-garda-cyan/[0.10] flex items-center justify-center mb-5">
               <p.icon className="w-6 h-6 text-garda-cyan" />
             </div>
             <h3 className="font-bold mb-2">{p.title}</h3>
-            <p className="text-garda-text-secondary text-xs leading-relaxed">{p.desc}</p>
+            <p className="text-garda-text-secondary/70 text-xs leading-relaxed">{p.desc}</p>
           </div>
         ))}
       </div>
 
-      {/* Exchange badges */}
       <div className="text-center">
         <p className="text-garda-text-muted text-sm mb-4">{t('landing.exchanges_count', { count: 17 })}</p>
         <div className="flex flex-wrap justify-center gap-2">
           {exchanges.map((name) => (
-            <span key={name} className="px-3.5 py-2 rounded-xl text-[11px] font-medium bg-garda-surface border border-garda-border text-garda-text-secondary hover:border-garda-cyan/30 hover:text-garda-cyan transition-colors">
+            <span key={name} className="px-3.5 py-2 rounded-xl text-[11px] font-medium border border-garda-border/30 text-garda-text-secondary/60 hover:border-garda-cyan/30 hover:text-garda-cyan transition-colors backdrop-blur-sm">
               {name}
             </span>
           ))}
@@ -276,15 +264,14 @@ function WhoSection() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
-        {/* Cocok */}
-        <div className="garda-card p-6 border-garda-cyan/15 bg-garda-cyan/[0.02]">
+        <div className="rounded-2xl border border-garda-cyan/10 backdrop-blur-sm p-6">
           <h3 className="font-bold text-garda-cyan mb-5 text-lg flex items-center gap-2">
             <Check className="w-5 h-5" /> {t('landing.who_fits')}
           </h3>
           <ul className="space-y-3">
             {fits.map((item, i) => (
-              <li key={i} className="flex items-start gap-3 text-sm text-garda-text-secondary">
-                <div className="w-5 h-5 rounded-full bg-garda-cyan/10 flex items-center justify-center shrink-0 mt-0.5">
+              <li key={i} className="flex items-start gap-3 text-sm text-garda-text-secondary/70">
+                <div className="w-5 h-5 rounded-full bg-garda-cyan/[0.08] border border-garda-cyan/20 flex items-center justify-center shrink-0 mt-0.5">
                   <Check className="w-3 h-3 text-garda-cyan" />
                 </div>
                 <span>{item}</span>
@@ -293,15 +280,14 @@ function WhoSection() {
           </ul>
         </div>
 
-        {/* Tidak Cocok */}
-        <div className="garda-card p-6 border-garda-pink/10 bg-garda-pink/[0.01]">
+        <div className="rounded-2xl border border-garda-pink/10 backdrop-blur-sm p-6">
           <h3 className="font-bold text-garda-pink mb-5 text-lg flex items-center gap-2">
             <AlertTriangle className="w-5 h-5" /> {t('landing.who_not_title')}
           </h3>
           <ul className="space-y-3">
             {notFits.map((item, i) => (
-              <li key={i} className="flex items-start gap-3 text-sm text-garda-text-secondary">
-                <div className="w-5 h-5 rounded-full bg-garda-pink/10 flex items-center justify-center shrink-0 mt-0.5">
+              <li key={i} className="flex items-start gap-3 text-sm text-garda-text-secondary/70">
+                <div className="w-5 h-5 rounded-full bg-garda-pink/[0.06] border border-garda-pink/15 flex items-center justify-center shrink-0 mt-0.5">
                   <span className="text-garda-pink text-[10px] font-bold">✕</span>
                 </div>
                 <span>{item}</span>
@@ -321,22 +307,22 @@ function FAQItem({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className={cn(
-      'rounded-xl border transition-all duration-300 overflow-hidden',
+      'rounded-2xl border backdrop-blur-sm transition-all duration-300 overflow-hidden',
       open
-        ? 'border-garda-cyan/20 bg-garda-cyan/[0.02] shadow-sm'
-        : 'border-garda-border bg-garda-surface/30 hover:border-garda-border-hover',
+        ? 'border-garda-cyan/15 bg-garda-cyan/[0.02]'
+        : 'border-garda-border/30 hover:border-garda-border-hover/50',
     )}>
       <button onClick={() => setOpen(!open)} className="w-full cursor-pointer py-5 px-5 flex items-center justify-between text-left">
         <span className="font-semibold text-sm pr-4">{q}</span>
         <div className={cn(
           'w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all duration-300',
-          open ? 'bg-garda-cyan/10 text-garda-cyan' : 'bg-garda-surface text-garda-text-muted',
+          open ? 'bg-garda-cyan/[0.08] text-garda-cyan border border-garda-cyan/20' : 'text-garda-text-muted',
         )}>
           {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </div>
       </button>
       {open && (
-        <div className="px-5 pb-5 text-garda-text-secondary text-sm leading-relaxed">
+        <div className="px-5 pb-5 text-garda-text-secondary/80 text-sm leading-relaxed">
           {a}
         </div>
       )}
@@ -376,13 +362,14 @@ function FinalCTA() {
   const { t } = useTranslation();
   return (
     <section className="relative py-32 px-4 sm:px-6 lg:px-8 overflow-hidden">
-      {/* Glow */}
-      <div className="absolute inset-0 bg-garda-cyan/5 blur-[150px] rounded-full w-[600px] h-[300px] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="w-[700px] h-[350px] rounded-full bg-garda-cyan/[0.04] blur-[150px]" />
+      </div>
       <div className="relative max-w-2xl mx-auto text-center">
         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight">
           {t('landing.final_headline')}
         </h2>
-        <p className="mt-6 text-lg text-garda-text-secondary max-w-xl mx-auto leading-relaxed">
+        <p className="mt-6 text-lg text-garda-text-secondary/80 max-w-xl mx-auto leading-relaxed">
           {t('landing.final_subheadline')}
         </p>
         <Link to="/register" className="mt-10 inline-flex items-center gap-2 bg-garda-cyan hover:bg-garda-cyan/90 text-garda-bg font-bold rounded-xl px-10 py-4 text-lg transition-all duration-200 shadow-xl shadow-garda-cyan/25 hover:shadow-garda-cyan/40 active:scale-[0.98]">
