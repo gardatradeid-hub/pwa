@@ -3,19 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/config/supabase';
 import { useUserStore } from '@/store/useUserStore';
 import { useTradeStore } from '@/store/useTradeStore';
-import { runGuardrailChecks, getBlockedChecks } from '@/lib/guardrail-engine';
+import { runGuardrailChecks, getBlockedChecks, getDefaultTierRules, type TierRules } from '@/lib/guardrail-engine';
 import type { GuardrailContext } from '@/lib/guardrail-engine';
 import { useConfig } from './useConfig';
 import { useTrades } from './useTrades';
 import type { DailyStats } from '@/types/guardrails';
 
-/**
- * Aggregate everything the order panel needs to render the dot-row of 12
- * guardrails, decide whether Long/Short is enabled, and surface which
- * specific rule is blocking.
- *
- * Server is still authoritative — this is a UX optimization.
- */
 async function fetchDailyStats(userId: string): Promise<DailyStats | null> {
   const today = new Date().toISOString().split('T')[0];
   const { data, error } = await supabase
@@ -39,11 +32,30 @@ async function fetchLatestEquity(userId: string) {
 }
 
 export function useGuardrails() {
-  const userId = useUserStore((s) => s.profile?.id);
+  const profile = useUserStore((s) => s.profile);
+  const userId = profile?.id;
   const balance = useUserStore((s) => s.balance);
   const form = useTradeStore((s) => s.form);
   const { config } = useConfig();
   const { openTrade, trades } = useTrades();
+
+  // Resolve the user's actual tier rules (tier config + per-user overrides)
+  const tier: TierRules = useMemo(() => {
+    const defaults = getDefaultTierRules();
+    const tiers: any[] = (config.evaluation_tiers as any)?.tiers || [];
+    const userTier = profile?.evaluation_tier ?? 1;
+    const tierCfg = tiers.find((t: any) => t.tier === userTier) || {};
+    const overrides = profile?.rule_overrides || {};
+
+    return {
+      max_trades: overrides.max_trades ?? tierCfg.max_trades ?? defaults.max_trades,
+      min_rr: overrides.min_rr ?? tierCfg.min_rr ?? defaults.min_rr,
+      cooldown_min: overrides.cooldown_min ?? tierCfg.cooldown_min ?? defaults.cooldown_min,
+      risk_per_trade_pct: overrides.risk_per_trade_pct ?? tierCfg.risk_per_trade_pct ?? defaults.risk_per_trade_pct,
+      daily_loss_limit_r: overrides.daily_loss_limit_r ?? tierCfg.daily_loss_limit_r ?? defaults.daily_loss_limit_r,
+      leverage: overrides.leverage ?? tierCfg.leverage ?? defaults.leverage,
+    };
+  }, [config.evaluation_tiers, profile?.evaluation_tier, profile?.rule_overrides]);
 
   const { data: dailyStats } = useQuery<DailyStats | null>({
     queryKey: ['daily_stats', userId],
@@ -86,7 +98,7 @@ export function useGuardrails() {
     };
   }, [balance, equity, dailyStats, openTrade, lastClosed, config.revenge_config.detection_window_min, form]);
 
-  const checks = useMemo(() => runGuardrailChecks(context), [context]);
+  const checks = useMemo(() => runGuardrailChecks(context, tier), [context, tier]);
   const blocked = useMemo(() => getBlockedChecks(checks), [checks]);
   const canTrade = blocked.length === 0;
   const firstBlock = blocked[0] ?? null;
@@ -97,5 +109,6 @@ export function useGuardrails() {
     canTrade,
     firstBlock,
     context,
+    tier,
   };
 }

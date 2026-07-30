@@ -37,14 +37,31 @@ export interface GuardrailContext {
   };
 }
 
+export interface TierRules {
+  max_trades: number;
+  min_rr: number;
+  cooldown_min: number;
+  risk_per_trade_pct: number;
+  daily_loss_limit_r: number;
+  leverage: number;
+}
+
+export function getDefaultTierRules(): TierRules {
+  return { max_trades: 3, min_rr: 2.0, cooldown_min: 120, risk_per_trade_pct: 1.0, daily_loss_limit_r: 3, leverage: 1 };
+}
+
 /**
  * Run all 12 guardrail checks (client preview). Server is authoritative.
+ *
+ * @param context  Live trading context (balance, positions, stats)
+ * @param tier     Evaluation tier + rule overrides merged (from usePhase or
+ *                 fetched from app_config + profile.evaluation_tier)
  */
-export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] {
+export function runGuardrailChecks(
+  context: GuardrailContext,
+  tier: TierRules = getDefaultTierRules(),
+): GuardrailCheck[] {
   const rules = DEFAULT_TRADING_RULES;
-  // Default tier values (Bronze / tier 1) for client-side preview.
-  // Server uses evaluation_tiers from app_config + profile.evaluation_tier.
-  const tierDefaults = { max_trades: 3, min_rr: 2.0, cooldown_min: 120, risk_per_trade_pct: 1.0 };
   const checks: GuardrailCheck[] = [];
 
   // 1. Max open positions
@@ -59,18 +76,18 @@ export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] 
   // 2. Max trades per day
   checks.push({
     name: 'max_trades',
-    passed: context.tradesToday < tierDefaults.max_trades,
-    message: `Maksimal ${tierDefaults.max_trades} trade hari ini. Terpakai: ${context.tradesToday}`,
-    message_en: `Max ${tierDefaults.max_trades} trades today. Used: ${context.tradesToday}`,
+    passed: context.tradesToday < tier.max_trades,
+    message: `Maksimal ${tier.max_trades} trade hari ini. Terpakai: ${context.tradesToday}`,
+    message_en: `Max ${tier.max_trades} trades today. Used: ${context.tradesToday}`,
     blocking: true,
   });
 
   // 3. Daily loss limit
   checks.push({
     name: 'daily_loss',
-    passed: context.dailyLossR < rules.daily_loss_limit_r,
-    message: `Batas kerugian harian ${rules.daily_loss_limit_r}R tercapai`,
-    message_en: `Daily loss limit of ${rules.daily_loss_limit_r}R reached`,
+    passed: context.dailyLossR < tier.daily_loss_limit_r,
+    message: `Batas kerugian harian ${tier.daily_loss_limit_r}R tercapai`,
+    message_en: `Daily loss limit of ${tier.daily_loss_limit_r}R reached`,
     blocking: true,
   });
 
@@ -104,33 +121,32 @@ export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] 
     blocking: true,
   });
 
-  // 7. Leverage — structural invariant, always 1x via position-sizer.
-  //    Surfaced so the UI dot row shows the rule is honored.
+  // 7. Leverage
   checks.push({
     name: 'leverage',
     passed: true,
-    message: `Leverage terkunci ${rules.leverage}x`,
-    message_en: `Leverage locked at ${rules.leverage}x`,
+    message: `Leverage dikunci ${tier.leverage}x`,
+    message_en: `Leverage locked at ${tier.leverage}x`,
     blocking: false,
   });
 
-  // 8. Risk per trade — structural invariant (1% of balance, calculated, not entered).
+  // 8. Risk per trade
   checks.push({
     name: 'risk_per_trade',
     passed: true,
-    message: `Risiko per trade dikunci ${rules.risk_per_trade_pct}R`,
-    message_en: `Risk per trade locked at ${rules.risk_per_trade_pct}R`,
+    message: `Risiko per trade dikunci ${tier.risk_per_trade_pct}R`,
+    message_en: `Risk per trade locked at ${tier.risk_per_trade_pct}R`,
     blocking: false,
   });
 
-  // 9. Minimum RR ratio (preview only — server re-validates).
+  // 9. Minimum RR ratio
   const rr = context.form?.rrRatio;
-  const rrOk = rr == null ? true : rr >= tierDefaults.min_rr;
+  const rrOk = rr == null ? true : rr >= tier.min_rr;
   checks.push({
     name: 'min_rr',
     passed: rrOk,
-    message: `Minimal RR 1:${tierDefaults.min_rr}`,
-    message_en: `Minimum RR 1:${tierDefaults.min_rr}`,
+    message: `Minimal RR 1:${tier.min_rr}`,
+    message_en: `Minimum RR 1:${tier.min_rr}`,
     blocking: true,
   });
 
@@ -157,7 +173,7 @@ export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] 
     blocking: true,
   });
 
-  // 11. Averaging down — entry worse than existing open position.
+  // 11. Averaging down
   let averagingOk = true;
   if (
     rules.averaging_down_blocked &&
@@ -182,8 +198,7 @@ export function runGuardrailChecks(context: GuardrailContext): GuardrailCheck[] 
     blocking: true,
   });
 
-  // 12. Manual lot size — structural invariant: TradeFormInputs has no quantity
-  //     field, server rejects forbidden fields. Always passes client-side.
+  // 12. Manual lot size
   checks.push({
     name: 'manual_lot',
     passed: true,
